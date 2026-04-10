@@ -1,2 +1,5 @@
 add_executable(test_lexer test_lexer.cpp)
 target_link_libraries(test_lexer PRIVATE qlang_lexer qlang_token qlang_diagnostics LLVMCore)
+
+add_executable(test_lexer_errors test_lexer_errors.cpp)
+target_link_libraries(test_lexer_errors PRIVATE qlang_lexer qlang_token qlang_diagnostics LLVMCore)
