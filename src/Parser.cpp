@@ -335,58 +335,281 @@ std::unique_ptr<ContinueStmt> Parser::parseContinueStatement() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseExpr() {
-    error(current.line, current.col, "parseExpr not implemented");
-    return nullptr;
+    return parseOrExpr();
 }
 
 std::unique_ptr<ASTNode> Parser::parseOrExpr() {
-    error(current.line, current.col, "parseOrExpr not implemented");
-    return nullptr;
+    auto left = parseAndExpr();
+    while (match(TokenKind::OR)) {
+        auto node = std::make_unique<BinaryExpr>();
+        node->op = "||";
+        node->left = std::move(left);
+        node->right = parseAndExpr();
+        left = std::move(node);
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseAndExpr() {
-    error(current.line, current.col, "parseAndExpr not implemented");
-    return nullptr;
+    auto left = parseEqualityExpr();
+    while (match(TokenKind::AND)) {
+        auto node = std::make_unique<BinaryExpr>();
+        node->op = "&&";
+        node->left = std::move(left);
+        node->right = parseEqualityExpr();
+        left = std::move(node);
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseEqualityExpr() {
-    error(current.line, current.col, "parseEqualityExpr not implemented");
-    return nullptr;
+    auto left = parseRelationalExpr();
+    while (true) {
+        if (match(TokenKind::EQ)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "==";
+            node->left = std::move(left);
+            node->right = parseRelationalExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::NE)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "!=";
+            node->left = std::move(left);
+            node->right = parseRelationalExpr();
+            left = std::move(node);
+        } else {
+            break;
+        }
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseRelationalExpr() {
-    error(current.line, current.col, "parseRelationalExpr not implemented");
-    return nullptr;
+    auto left = parseAdditiveExpr();
+    while (true) {
+        if (match(TokenKind::LT)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "<";
+            node->left = std::move(left);
+            node->right = parseAdditiveExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::LE)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "<=";
+            node->left = std::move(left);
+            node->right = parseAdditiveExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::GT)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = ">";
+            node->left = std::move(left);
+            node->right = parseAdditiveExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::GE)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = ">=";
+            node->left = std::move(left);
+            node->right = parseAdditiveExpr();
+            left = std::move(node);
+        } else {
+            break;
+        }
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseAdditiveExpr() {
-    error(current.line, current.col, "parseAdditiveExpr not implemented");
-    return nullptr;
+    auto left = parseMultiplicativeExpr();
+    while (true) {
+        if (match(TokenKind::PLUS)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "+";
+            node->left = std::move(left);
+            node->right = parseMultiplicativeExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::MINUS)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "-";
+            node->left = std::move(left);
+            node->right = parseMultiplicativeExpr();
+            left = std::move(node);
+        } else {
+            break;
+        }
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseMultiplicativeExpr() {
-    error(current.line, current.col, "parseMultiplicativeExpr not implemented");
-    return nullptr;
+    auto left = parseUnaryExpr();
+    while (true) {
+        if (match(TokenKind::STAR)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "*";
+            node->left = std::move(left);
+            node->right = parseUnaryExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::SLASH)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "/";
+            node->left = std::move(left);
+            node->right = parseUnaryExpr();
+            left = std::move(node);
+        } else if (match(TokenKind::PERCENT)) {
+            auto node = std::make_unique<BinaryExpr>();
+            node->op = "%";
+            node->left = std::move(left);
+            node->right = parseUnaryExpr();
+            left = std::move(node);
+        } else {
+            break;
+        }
+    }
+    return left;
 }
 
 std::unique_ptr<ASTNode> Parser::parseUnaryExpr() {
-    error(current.line, current.col, "parseUnaryExpr not implemented");
-    return nullptr;
+    if (match(TokenKind::NOT)) {
+        auto node = std::make_unique<UnaryExpr>();
+        node->op = "!";
+        node->operand = parseUnaryExpr();
+        return node;
+    }
+    if (match(TokenKind::MINUS)) {
+        auto node = std::make_unique<UnaryExpr>();
+        node->op = "-";
+        node->operand = parseUnaryExpr();
+        return node;
+    }
+    if (match(TokenKind::LPAREN)) {
+        // Cast expression: (type) expr
+        std::string targetType = parseType();
+        consume(TokenKind::RPAREN, "expected ')'");
+        auto node = std::make_unique<CastExpr>();
+        node->targetType = targetType;
+        node->operand = parseUnaryExpr();
+        return node;
+    }
+    return parsePostfixExpr();
 }
 
 std::unique_ptr<ASTNode> Parser::parsePostfixExpr() {
-    error(current.line, current.col, "parsePostfixExpr not implemented");
-    return nullptr;
+    auto expr = parsePrimary();
+
+    while (true) {
+        if (match(TokenKind::LBRACKET)) {
+            // Array index arr[i]
+            auto node = std::make_unique<IndexExpr>();
+            node->base = std::move(expr);
+            node->index = parseExpr();
+            consume(TokenKind::RBRACKET, "expected ']'");
+            expr = std::move(node);
+        } else if (match(TokenKind::DOT)) {
+            // Member access obj.field
+            auto node = std::make_unique<MemberExpr>();
+            node->object = std::move(expr);
+            Token memberName = consume(TokenKind::IDENT, "expected member name");
+            node->member = memberName.lexeme;
+            expr = std::move(node);
+        } else if (match(TokenKind::LPAREN)) {
+            // Function call func(args)
+            auto call = std::make_unique<CallExpr>();
+            if (auto* ident = dynamic_cast<IdentExpr*>(expr.get())) {
+                call->callee = ident->name;
+            } else {
+                error(current.line, current.col, "expected function name");
+            }
+            // Parse args
+            if (!check(TokenKind::RPAREN)) {
+                do {
+                    call->args.push_back(parseExpr());
+                } while (match(TokenKind::COMMA));
+            }
+            consume(TokenKind::RPAREN, "expected ')'");
+            expr = std::move(call);
+        } else {
+            break;
+        }
+    }
+    return expr;
 }
 
 std::unique_ptr<ASTNode> Parser::parsePrimary() {
-    error(current.line, current.col, "parsePrimary not implemented");
+    if (check(TokenKind::INT_LIT)) {
+        auto node = std::make_unique<LiteralExpr>();
+        node->literal = advance();
+        return node;
+    }
+    if (check(TokenKind::FLOAT_LIT)) {
+        auto node = std::make_unique<LiteralExpr>();
+        node->literal = advance();
+        return node;
+    }
+    if (check(TokenKind::KEYWORD_TRUE) || check(TokenKind::KEYWORD_FALSE)) {
+        auto node = std::make_unique<LiteralExpr>();
+        node->literal = advance();
+        return node;
+    }
+    if (check(TokenKind::STRING_LIT)) {
+        auto node = std::make_unique<LiteralExpr>();
+        node->literal = advance();
+        return node;
+    }
+    if (check(TokenKind::IDENT)) {
+        auto node = std::make_unique<IdentExpr>();
+        node->name = advance().lexeme;
+        return node;
+    }
+    if (check(TokenKind::LPAREN)) {
+        advance();
+        auto expr = parseExpr();
+        consume(TokenKind::RPAREN, "expected ')'");
+        return expr;
+    }
+
+    error(current.line, current.col, "unexpected token: " + current.lexeme);
     return nullptr;
 }
 
 std::unique_ptr<ASTNode> Parser::parseCaseLabel() {
-    error(current.line, current.col, "parseCaseLabel not implemented");
-    return nullptr;
+    bool negative = false;
+    if (match(TokenKind::MINUS)) {
+        negative = true;
+    }
+
+    if (!check(TokenKind::INT_LIT)) {
+        error(current.line, current.col, "expected integer literal in case label");
+    }
+    Token num = advance();
+    int value = std::stoi(num.lexeme);
+    if (negative) value = -value;
+
+    auto literal = std::make_unique<LiteralExpr>();
+    literal->literal = Token(TokenKind::INT_LIT, std::to_string(value), num.line, num.col);
+
+    while (match(TokenKind::PLUS) || match(TokenKind::MINUS)) {
+        Token op = current;
+        bool neg2 = false;
+        if (op.kind == TokenKind::MINUS) neg2 = true;
+        if (match(TokenKind::MINUS)) {} // consume minus
+        else match(TokenKind::PLUS); // consume plus
+
+        if (!check(TokenKind::INT_LIT)) {
+            error(current.line, current.col, "expected integer literal");
+        }
+        Token num2 = advance();
+        int val2 = std::stoi(num2.lexeme);
+        if (neg2) val2 = -val2;
+
+        auto binOp = std::make_unique<BinaryExpr>();
+        binOp->op = (op.kind == TokenKind::PLUS) ? "+" : "-";
+        binOp->left = std::move(literal);
+        auto rhs = std::make_unique<LiteralExpr>();
+        rhs->literal = Token(TokenKind::INT_LIT, std::to_string(val2), num2.line, num2.col);
+        binOp->right = std::move(rhs);
+        literal = std::move(binOp);
+    }
+    return literal;
 }
 
 std::unique_ptr<ASTNode> Parser::parseInitializer() {
