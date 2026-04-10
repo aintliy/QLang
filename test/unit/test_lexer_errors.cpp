@@ -53,6 +53,7 @@ int main() {
     all_passed &= test_exit_case("\"\\q\"", "invalid escape sequence");
     all_passed &= test_exit_case("\"hello", "unterminated string");
     all_passed &= test_exit_case("{** comment", "unterminated comment");
+    all_passed &= test_exit_case("\"hello\0world\"", "null character in string");
 
     // This case returns an ERROR token
     all_passed &= test_error_token_case("@", "invalid character");
