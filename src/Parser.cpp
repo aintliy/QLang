@@ -40,13 +40,60 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
-    error(current.line, current.col, "parseTopLevelDecl not implemented");
-    return nullptr;
+    if (check(TokenKind::KEYWORD_STRUCT)) {
+        return parseStructDef();
+    }
+
+    // Function or variable - parse type first
+    std::string type = parseType();
+    std::string name = consume(TokenKind::IDENT, "expected identifier").lexeme;
+
+    if (match(TokenKind::LPAREN)) {
+        // Function definition
+        auto node = std::make_unique<FuncDefNode>();
+        node->returnType = type;
+        node->name = name;
+        // Parse params
+        if (!check(TokenKind::RPAREN)) {
+            do {
+                std::string paramType = parseType();
+                std::string paramName = consume(TokenKind::IDENT, "expected parameter name").lexeme;
+                node->params.emplace_back(paramType, paramName);
+            } while (match(TokenKind::COMMA));
+        }
+        consume(TokenKind::RPAREN, "expected ')'");
+        node->body = parseBlock();
+        return node;
+    } else {
+        // Variable declaration
+        auto node = std::make_unique<VarDeclNode>();
+        node->type = type;
+        node->name = name;
+        if (match(TokenKind::ASSIGN)) {
+            node->initializer = parseInitializer();
+        }
+        consume(TokenKind::SEMICOLON, "expected ';'");
+        return node;
+    }
 }
 
 std::unique_ptr<StructDefNode> Parser::parseStructDef() {
-    error(current.line, current.col, "parseStructDef not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_STRUCT, "expected 'struct'");
+    Token name = consume(TokenKind::IDENT, "expected struct name");
+    consume(TokenKind::LBRACE, "expected '{'");
+
+    auto node = std::make_unique<StructDefNode>();
+    node->name = name.lexeme;
+
+    while (!check(TokenKind::RBRACE) && !check(TokenKind::END_OF_FILE)) {
+        std::string fieldType = parseType();
+        Token fieldName = consume(TokenKind::IDENT, "expected field name");
+        consume(TokenKind::SEMICOLON, "expected ';'");
+        node->fields.emplace_back(fieldType, fieldName.lexeme);
+    }
+
+    consume(TokenKind::RBRACE, "expected '}'");
+    return node;
 }
 
 std::unique_ptr<FuncDefNode> Parser::parseFuncDef() {
@@ -55,13 +102,59 @@ std::unique_ptr<FuncDefNode> Parser::parseFuncDef() {
 }
 
 std::unique_ptr<VarDeclNode> Parser::parseVarDecl() {
-    error(current.line, current.col, "parseVarDecl not implemented");
-    return nullptr;
+    std::string type = parseType();
+    Token name = consume(TokenKind::IDENT, "expected variable name");
+
+    auto node = std::make_unique<VarDeclNode>();
+    node->type = type;
+    node->name = name.lexeme;
+
+    if (match(TokenKind::ASSIGN)) {
+        node->initializer = parseInitializer();
+    }
+    consume(TokenKind::SEMICOLON, "expected ';'");
+    return node;
 }
 
 std::string Parser::parseType() {
-    error(current.line, current.col, "parseType not implemented");
-    return "";
+    Token typeToken;
+
+    if (check(TokenKind::KEYWORD_INT32)) {
+        typeToken = advance();
+    } else if (check(TokenKind::KEYWORD_FLOAT64)) {
+        typeToken = advance();
+    } else if (check(TokenKind::KEYWORD_BOOL)) {
+        typeToken = advance();
+    } else if (check(TokenKind::KEYWORD_STRING)) {
+        typeToken = advance();
+    } else if (check(TokenKind::KEYWORD_VOID)) {
+        typeToken = advance();
+    } else if (check(TokenKind::KEYWORD_STRUCT)) {
+        advance();
+        Token structName = consume(TokenKind::IDENT, "expected struct name");
+        std::string type = "struct " + structName.lexeme;
+        // Parse array suffixes
+        while (match(TokenKind::LBRACKET)) {
+            Token size = consume(TokenKind::INT_LIT, "expected array size");
+            consume(TokenKind::RBRACKET, "expected ']'");
+            type += "[" + size.lexeme + "]";
+        }
+        return type;
+    } else {
+        error(current.line, current.col, "expected type");
+        return "";
+    }
+
+    std::string type = typeToken.lexeme;
+
+    // Parse array suffixes int32[3][4]
+    while (match(TokenKind::LBRACKET)) {
+        Token size = consume(TokenKind::INT_LIT, "expected array size");
+        consume(TokenKind::RBRACKET, "expected ']'");
+        type += "[" + size.lexeme + "]";
+    }
+
+    return type;
 }
 
 std::unique_ptr<ASTNode> Parser::parseStatement() {
@@ -70,8 +163,21 @@ std::unique_ptr<ASTNode> Parser::parseStatement() {
 }
 
 std::unique_ptr<BlockStmt> Parser::parseBlock() {
-    error(current.line, current.col, "parseBlock not implemented");
-    return nullptr;
+    consume(TokenKind::LBRACE, "expected '{'");
+    auto block = std::make_unique<BlockStmt>();
+
+    while (!check(TokenKind::RBRACE) && !check(TokenKind::END_OF_FILE)) {
+        // block_item = var_decl ";" | statement
+        if (check(TokenKind::KEYWORD_INT32) || check(TokenKind::KEYWORD_FLOAT64) ||
+            check(TokenKind::KEYWORD_BOOL) || check(TokenKind::KEYWORD_STRING)) {
+            block->items.push_back(parseVarDecl());
+        } else {
+            block->items.push_back(parseStatement());
+        }
+    }
+
+    consume(TokenKind::RBRACE, "expected '}'");
+    return block;
 }
 
 std::unique_ptr<IfStmt> Parser::parseIfStatement() {
@@ -165,6 +271,9 @@ std::unique_ptr<ASTNode> Parser::parseCaseLabel() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseInitializer() {
-    error(current.line, current.col, "parseInitializer not implemented");
-    return nullptr;
+    if (check(TokenKind::LBRACE)) {
+        // Aggregate initialization {1, 2, 3}
+        return parseBlock();
+    }
+    return parseExpr();
 }
