@@ -1,0 +1,82 @@
+#pragma once
+#include <string>
+
+enum class TokenKind {
+    // Keywords
+    KEYWORD_BOOL,
+    KEYWORD_BREAK,
+    KEYWORD_CASE,
+    KEYWORD_CONTINUE,
+    KEYWORD_DEFAULT,
+    KEYWORD_ELSE,
+    KEYWORD_FALSE,
+    KEYWORD_FLOAT64,
+    KEYWORD_FOR,
+    KEYWORD_IF,
+    KEYWORD_INT32,
+    KEYWORD_RETURN,
+    KEYWORD_STRING,
+    KEYWORD_STRUCT,
+    KEYWORD_SWITCH,
+    KEYWORD_TRUE,
+    KEYWORD_VOID,
+    KEYWORD_WHILE,
+
+    // Identifiers
+    IDENT,
+
+    // Literals
+    INT_LIT,
+    FLOAT_LIT,
+    STRING_LIT,
+
+    // Operators
+    PLUS,       // +
+    MINUS,      // -
+    STAR,       // *
+    SLASH,      // /
+    PERCENT,    // %
+
+    // Delimiters
+    LPAREN,     // (
+    RPAREN,     // )
+    LBRACE,     // {
+    RBRACE,     // }
+    LBRACKET,   // [
+    RBRACKET,   // ]
+    COMMA,      // ,
+    SEMICOLON,  // ;
+    DOT,        // .
+
+    // Assignment
+    ASSIGN,     // =
+
+    // Comparison
+    EQ,         // ==
+    NE,         // !=
+    LT,         // <
+    LE,         // <=
+    GT,         // >
+    GE,         // >=
+
+    // Logical
+    AND,        // &&
+    OR,         // ||
+    NOT,        // !
+
+    // Special
+    EOF,
+    ERROR
+};
+
+struct Token {
+    TokenKind kind;
+    std::string lexeme;
+    int line;
+    int col;
+
+    Token(TokenKind kind, std::string lexeme, int line, int col)
+        : kind(kind), lexeme(std::move(lexeme)), line(line), col(col) {}
+};
+
+const char* tokenKindToString(TokenKind kind);
