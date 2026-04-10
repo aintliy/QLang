@@ -65,7 +65,7 @@ enum class TokenKind {
     NOT,        // !
 
     // Special
-    EOF,
+    END_OF_FILE,
     ERROR
 };
 

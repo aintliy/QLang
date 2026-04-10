@@ -24,7 +24,7 @@ int main(int argc, char** argv) {
         std::cout << "Token: " << tokenKindToString(token.kind)
                   << " \"" << token.lexeme << "\""
                   << " at " << token.line << ":" << token.col << std::endl;
-        if (token.kind == TokenKind::EOF) break;
+        if (token.kind == TokenKind::END_OF_FILE) break;
     }
 
     return 0;

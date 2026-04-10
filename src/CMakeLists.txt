@@ -22,4 +22,4 @@ target_link_libraries(qlang_lexer PUBLIC qlang_token qlang_diagnostics)
 
 # Driver (for testing)
 add_executable(qlang_driver Driver/main.cpp)
-target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics LLVM::Core)
+target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics LLVMCore)
