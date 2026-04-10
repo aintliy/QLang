@@ -1,4 +1,5 @@
-// Fibonacci sequence (LRM 8.1)
+{** 斐波那契数列 - 递归实现 **}
+
 int32 fib(int32 n) {
     if (n <= 1) {
         return n;
@@ -7,5 +8,8 @@ int32 fib(int32 n) {
 }
 
 void main() {
-    int32 result = fib(10);
+    int32 result;
+    result = fib(10);
+    print_string("Fibonacci(10) = ");
+    println_int(result);
 }
