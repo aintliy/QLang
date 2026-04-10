@@ -8,8 +8,9 @@
 
 set -e
 
-# LLVM 工具链路径 (Windows)
-LLVM_DIR="${LLVM_DIR:-D:/LLVM}"
+# LLVM 工具链路径 (Ubuntu WSL)
+# LLVM 通过 find_package(LLVM) 自动发现，此处仅用于 PATH
+LLVM_DIR="${LLVM_DIR:-/usr/lib/llvm-18}"
 LLVM_BIN="${LLVM_DIR}/bin"
 export PATH="$LLVM_BIN:$PATH"
 
