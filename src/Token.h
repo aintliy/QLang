@@ -46,6 +46,7 @@ enum class TokenKind {
     RBRACKET,   // ]
     COMMA,      // ,
     SEMICOLON,  // ;
+    COLON,      // :
     DOT,        // .
 
     // Assignment
@@ -75,6 +76,7 @@ struct Token {
     int line;
     int col;
 
+    Token() : kind(TokenKind::END_OF_FILE), lexeme(""), line(0), col(0) {}
     Token(TokenKind kind, std::string lexeme, int line, int col)
         : kind(kind), lexeme(std::move(lexeme)), line(line), col(col) {}
 };

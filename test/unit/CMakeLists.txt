@@ -3,3 +3,6 @@ target_link_libraries(test_lexer PRIVATE qlang_lexer qlang_token qlang_diagnosti
 
 add_executable(test_lexer_errors test_lexer_errors.cpp)
 target_link_libraries(test_lexer_errors PRIVATE qlang_lexer qlang_token qlang_diagnostics LLVMCore)
+
+add_executable(test_parser test_parser.cpp)
+target_link_libraries(test_parser PRIVATE qlang_parser qlang_lexer qlang_token qlang_ast qlang_diagnostics LLVMCore)

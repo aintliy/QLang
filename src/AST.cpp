@@ -115,7 +115,7 @@ void ExprStmt::dump() const {
 // ===== Expressions =====
 
 void LiteralExpr::dump() const {
-    std::cerr << "LiteralExpr(literal=" << literal.text << ")" << std::endl;
+    std::cerr << "LiteralExpr(literal=" << literal.lexeme << ")" << std::endl;
 }
 
 void IdentExpr::dump() const {

@@ -120,17 +120,17 @@ std::string Parser::parseType() {
     Token typeToken;
 
     if (check(TokenKind::KEYWORD_INT32)) {
-        typeToken = advance();
+        typeToken = consume(TokenKind::KEYWORD_INT32, "expected int32");
     } else if (check(TokenKind::KEYWORD_FLOAT64)) {
-        typeToken = advance();
+        typeToken = consume(TokenKind::KEYWORD_FLOAT64, "expected float64");
     } else if (check(TokenKind::KEYWORD_BOOL)) {
-        typeToken = advance();
+        typeToken = consume(TokenKind::KEYWORD_BOOL, "expected bool");
     } else if (check(TokenKind::KEYWORD_STRING)) {
-        typeToken = advance();
+        typeToken = consume(TokenKind::KEYWORD_STRING, "expected string");
     } else if (check(TokenKind::KEYWORD_VOID)) {
-        typeToken = advance();
+        typeToken = consume(TokenKind::KEYWORD_VOID, "expected void");
     } else if (check(TokenKind::KEYWORD_STRUCT)) {
-        advance();
+        consume(TokenKind::KEYWORD_STRUCT, "expected struct");
         Token structName = consume(TokenKind::IDENT, "expected struct name");
         std::string type = "struct " + structName.lexeme;
         // Parse array suffixes
@@ -537,27 +537,27 @@ std::unique_ptr<ASTNode> Parser::parsePostfixExpr() {
 std::unique_ptr<ASTNode> Parser::parsePrimary() {
     if (check(TokenKind::INT_LIT)) {
         auto node = std::make_unique<LiteralExpr>();
-        node->literal = advance();
+        node->literal = consume(TokenKind::INT_LIT, "expected integer literal");
         return node;
     }
     if (check(TokenKind::FLOAT_LIT)) {
         auto node = std::make_unique<LiteralExpr>();
-        node->literal = advance();
+        node->literal = consume(TokenKind::FLOAT_LIT, "expected float literal");
         return node;
     }
     if (check(TokenKind::KEYWORD_TRUE) || check(TokenKind::KEYWORD_FALSE)) {
         auto node = std::make_unique<LiteralExpr>();
-        node->literal = advance();
+        node->literal = consume(check(TokenKind::KEYWORD_TRUE) ? TokenKind::KEYWORD_TRUE : TokenKind::KEYWORD_FALSE, "expected boolean literal");
         return node;
     }
     if (check(TokenKind::STRING_LIT)) {
         auto node = std::make_unique<LiteralExpr>();
-        node->literal = advance();
+        node->literal = consume(TokenKind::STRING_LIT, "expected string literal");
         return node;
     }
     if (check(TokenKind::IDENT)) {
         auto node = std::make_unique<IdentExpr>();
-        node->name = advance().lexeme;
+        node->name = consume(TokenKind::IDENT, "expected identifier").lexeme;
         return node;
     }
     if (check(TokenKind::LPAREN)) {
@@ -580,12 +580,13 @@ std::unique_ptr<ASTNode> Parser::parseCaseLabel() {
     if (!check(TokenKind::INT_LIT)) {
         error(current.line, current.col, "expected integer literal in case label");
     }
-    Token num = advance();
+    Token num = current;
+    advance();
     int value = std::stoi(num.lexeme);
     if (negative) value = -value;
 
-    auto literal = std::make_unique<LiteralExpr>();
-    literal->literal = Token(TokenKind::INT_LIT, std::to_string(value), num.line, num.col);
+    std::unique_ptr<ASTNode> literal = std::make_unique<LiteralExpr>();
+    static_cast<LiteralExpr*>(literal.get())->literal = Token(TokenKind::INT_LIT, std::to_string(value), num.line, num.col);
 
     while (match(TokenKind::PLUS) || match(TokenKind::MINUS)) {
         Token op = current;
@@ -597,7 +598,8 @@ std::unique_ptr<ASTNode> Parser::parseCaseLabel() {
         if (!check(TokenKind::INT_LIT)) {
             error(current.line, current.col, "expected integer literal");
         }
-        Token num2 = advance();
+        Token num2 = current;
+        advance();
         int val2 = std::stoi(num2.lexeme);
         if (neg2) val2 = -val2;
 
