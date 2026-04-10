@@ -158,8 +158,26 @@ std::string Parser::parseType() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseStatement() {
-    error(current.line, current.col, "parseStatement not implemented");
-    return nullptr;
+    if (check(TokenKind::KEYWORD_IF)) return parseIfStatement();
+    if (check(TokenKind::KEYWORD_WHILE)) return parseWhileStatement();
+    if (check(TokenKind::KEYWORD_FOR)) return parseForStatement();
+    if (check(TokenKind::KEYWORD_SWITCH)) return parseSwitchStatement();
+    if (check(TokenKind::KEYWORD_RETURN)) return parseReturnStatement();
+    if (check(TokenKind::KEYWORD_BREAK)) return parseBreakStatement();
+    if (check(TokenKind::KEYWORD_CONTINUE)) return parseContinueStatement();
+    if (check(TokenKind::LBRACE)) return parseBlock();
+
+    // Assignment or expression statement
+    auto expr = parseExpr();
+    if (match(TokenKind::ASSIGN)) {
+        auto assign = std::make_unique<AssignExpr>();
+        assign->target = std::move(expr);
+        assign->value = parseExpr();
+        consume(TokenKind::SEMICOLON, "expected ';'");
+        return assign;
+    }
+    consume(TokenKind::SEMICOLON, "expected ';'");
+    return expr;
 }
 
 std::unique_ptr<BlockStmt> Parser::parseBlock() {
@@ -181,38 +199,139 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
 }
 
 std::unique_ptr<IfStmt> Parser::parseIfStatement() {
-    error(current.line, current.col, "parseIfStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_IF, "expected 'if'");
+    consume(TokenKind::LPAREN, "expected '('");
+    auto condition = parseExpr();
+    consume(TokenKind::RPAREN, "expected ')'");
+
+    auto thenBranch = parseStatement();
+
+    std::unique_ptr<ASTNode> elseBranch;
+    if (match(TokenKind::KEYWORD_ELSE)) {
+        elseBranch = parseStatement();
+    }
+
+    auto node = std::make_unique<IfStmt>();
+    node->condition = std::move(condition);
+    node->thenBranch = std::move(thenBranch);
+    node->elseBranch = std::move(elseBranch);
+    return node;
 }
 
 std::unique_ptr<WhileStmt> Parser::parseWhileStatement() {
-    error(current.line, current.col, "parseWhileStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_WHILE, "expected 'while'");
+    consume(TokenKind::LPAREN, "expected '('");
+    auto condition = parseExpr();
+    consume(TokenKind::RPAREN, "expected ')'");
+
+    auto node = std::make_unique<WhileStmt>();
+    node->condition = std::move(condition);
+    node->body = parseStatement();
+    return node;
 }
 
 std::unique_ptr<ForStmt> Parser::parseForStatement() {
-    error(current.line, current.col, "parseForStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_FOR, "expected 'for'");
+    consume(TokenKind::LPAREN, "expected '('");
+
+    auto node = std::make_unique<ForStmt>();
+
+    // init - can be assignment or empty
+    if (!check(TokenKind::SEMICOLON)) {
+        auto target = parseExpr();
+        consume(TokenKind::ASSIGN, "expected '='");
+        auto value = parseExpr();
+        auto assign = std::make_unique<AssignExpr>();
+        assign->target = std::move(target);
+        assign->value = std::move(value);
+        node->init = std::move(assign);
+    }
+    consume(TokenKind::SEMICOLON, "expected ';'");
+
+    // condition - can be empty
+    if (!check(TokenKind::SEMICOLON)) {
+        node->cond = parseExpr();
+    }
+    consume(TokenKind::SEMICOLON, "expected ';'");
+
+    // update - can be empty
+    if (!check(TokenKind::RPAREN)) {
+        auto target = parseExpr();
+        consume(TokenKind::ASSIGN, "expected '='");
+        auto value = parseExpr();
+        auto assign = std::make_unique<AssignExpr>();
+        assign->target = std::move(target);
+        assign->value = std::move(value);
+        node->update = std::move(assign);
+    }
+    consume(TokenKind::RPAREN, "expected ')'");
+
+    node->body = parseStatement();
+    return node;
 }
 
 std::unique_ptr<SwitchStmt> Parser::parseSwitchStatement() {
-    error(current.line, current.col, "parseSwitchStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_SWITCH, "expected 'switch'");
+    consume(TokenKind::LPAREN, "expected '('");
+    auto node = std::make_unique<SwitchStmt>();
+    node->expr = parseExpr();
+    consume(TokenKind::RPAREN, "expected ')'");
+    consume(TokenKind::LBRACE, "expected '{'");
+
+    while (check(TokenKind::KEYWORD_CASE) && !check(TokenKind::END_OF_FILE)) {
+        advance(); // consume 'case'
+        auto label = parseCaseLabel();
+        consume(TokenKind::COLON, "expected ':'");
+
+        auto caseBody = std::make_unique<BlockStmt>();
+        while (!check(TokenKind::KEYWORD_CASE) && !check(TokenKind::KEYWORD_DEFAULT) && !check(TokenKind::RBRACE)) {
+            caseBody->items.push_back(parseStatement());
+        }
+        // parse 'break ;'
+        if (check(TokenKind::KEYWORD_BREAK)) {
+            advance();
+            consume(TokenKind::SEMICOLON, "expected ';'");
+        }
+
+        node->cases.emplace_back(std::move(label), std::move(caseBody->items));
+    }
+
+    if (match(TokenKind::KEYWORD_DEFAULT)) {
+        consume(TokenKind::COLON, "expected ':'");
+        while (!check(TokenKind::RBRACE)) {
+            node->defaultBody.push_back(parseStatement());
+        }
+        if (check(TokenKind::KEYWORD_BREAK)) {
+            advance();
+            consume(TokenKind::SEMICOLON, "expected ';'");
+        }
+    }
+
+    consume(TokenKind::RBRACE, "expected '}'");
+    return node;
 }
 
 std::unique_ptr<ReturnStmt> Parser::parseReturnStatement() {
-    error(current.line, current.col, "parseReturnStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_RETURN, "expected 'return'");
+    auto node = std::make_unique<ReturnStmt>();
+
+    if (!check(TokenKind::SEMICOLON)) {
+        node->value = parseExpr();
+    }
+    consume(TokenKind::SEMICOLON, "expected ';'");
+    return node;
 }
 
 std::unique_ptr<BreakStmt> Parser::parseBreakStatement() {
-    error(current.line, current.col, "parseBreakStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_BREAK, "expected 'break'");
+    consume(TokenKind::SEMICOLON, "expected ';'");
+    return std::make_unique<BreakStmt>();
 }
 
 std::unique_ptr<ContinueStmt> Parser::parseContinueStatement() {
-    error(current.line, current.col, "parseContinueStatement not implemented");
-    return nullptr;
+    consume(TokenKind::KEYWORD_CONTINUE, "expected 'continue'");
+    consume(TokenKind::SEMICOLON, "expected ';'");
+    return std::make_unique<ContinueStmt>();
 }
 
 std::unique_ptr<ASTNode> Parser::parseExpr() {
