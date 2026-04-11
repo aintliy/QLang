@@ -369,7 +369,72 @@ llvm::Value* CodeGen::codegen(WhileStmt* node) {
 
     return nullptr;
 }
-llvm::Value* CodeGen::codegen(ForStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(ForStmt* node) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    // 先执行 init（注意：init 不允许变量声明，只允许表达式语句）
+    if (node->init) {
+        codegen(node->init.get());
+    }
+
+    // 创建 basic blocks
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "for.cond", func);
+    llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "for.body", func);
+    llvm::BasicBlock* incBB = llvm::BasicBlock::Create(*context, "for.inc", func);
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "for.end", func);
+
+    // 保存当前循环目标
+    LoopTarget target = {endBB, incBB};
+    loopTargetStack.push_back(target);
+
+    // 跳转到条件检查
+    builder->CreateBr(condBB);
+
+    // 条件检查
+    builder->SetInsertPoint(condBB);
+    llvm::Value* cond = nullptr;
+    if (node->cond) {
+        cond = codegen(node->cond.get());
+        if (cond) {
+            // 转换为 i1
+            if (cond->getType()->isIntegerTy(32)) {
+                cond = builder->CreateICmpNE(cond, builder->getInt32(0), "cond.tobool");
+            } else if (cond->getType()->isDoubleTy()) {
+                cond = builder->CreateFCmpONE(cond, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "cond.tobool");
+            }
+        }
+    } else {
+        // 空条件视为 true（for(;;) 无限循环）
+        cond = builder->getTrue();
+    }
+    builder->CreateCondBr(cond, bodyBB, endBB);
+
+    // 循环体
+    builder->SetInsertPoint(bodyBB);
+    if (node->body) {
+        codegen(node->body.get());
+    }
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(incBB);
+    }
+
+    // increment 部分
+    builder->SetInsertPoint(incBB);
+    if (node->update) {
+        codegen(node->update.get());
+    }
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(condBB);
+    }
+
+    // 循环结束
+    builder->SetInsertPoint(endBB);
+
+    // 弹出循环目标
+    loopTargetStack.pop_back();
+
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(SwitchStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ReturnStmt* node) {
     if (node->value) {
