@@ -34,6 +34,11 @@ add_library(qlang_checker STATIC Checker.h Checker.cpp)
 target_include_directories(qlang_checker PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(qlang_checker PUBLIC qlang_ast qlang_diagnostics)
 
+# CodeGen
+add_library(qlang_codegen STATIC CodeGen.h CodeGen.cpp)
+target_include_directories(qlang_codegen PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(qlang_codegen PUBLIC qlang_ast qlang_diagnostics LLVMCore)
+
 # Driver (for testing)
 add_executable(qlang_driver Driver/main.cpp)
-target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_parser qlang_checker LLVMCore)
+target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_parser qlang_checker qlang_codegen LLVMCore)

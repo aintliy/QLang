@@ -21,16 +21,14 @@ struct FuncInfo {
 
 class Checker {
 public:
-    explicit Checker(std::unique_ptr<ProgramNode> ast);
-    void check();  // 执行两遍检查
+    explicit Checker();
+    void check(ProgramNode* program);  // 执行两遍检查
 
     // 供下游使用（codegen）
     const std::unordered_map<std::string, StructInfo>& getStructs() const { return structs; }
     const std::unordered_map<std::string, FuncInfo>& getFuncs() const { return funcs; }
 
 private:
-    std::unique_ptr<ProgramNode> ast;
-
     // 符号表（在第一遍填充）
     std::unordered_map<std::string, StructInfo> structs;
     std::unordered_map<std::string, FuncInfo> funcs;

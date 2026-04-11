@@ -3,14 +3,14 @@
 #include <algorithm>
 #include <iostream>
 
-Checker::Checker(std::unique_ptr<ProgramNode> ast) : ast(std::move(ast)) {}
+Checker::Checker() {}
 
-void Checker::check() {
+void Checker::check(ProgramNode* program) {
     // 第一遍：收集定义
-    pass1_collectDefinitions(ast.get());
+    pass1_collectDefinitions(program);
 
     // 第二遍：类型检查函数体
-    pass2_checkBody(ast.get());
+    pass2_checkBody(program);
 }
 
 void Checker::pass1_collectDefinitions(ASTNode* node) {
