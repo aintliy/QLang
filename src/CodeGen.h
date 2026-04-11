@@ -2,6 +2,7 @@
 #include "AST.h"
 #include <string>
 #include <memory>
+#include <map>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
@@ -25,10 +26,17 @@ private:
     std::unique_ptr<llvm::Module> module;
     std::unique_ptr<llvm::IRBuilder<>> builder;
 
+    // 符号表：变量名 -> AllocaInst*
+    std::map<std::string, llvm::AllocaInst*> namedValues;
+
+    // 当前函数
+    llvm::Function* currentFunction = nullptr;
+
     // 运行时库声明
     void declareRuntimeFunctions();
 
     // 辅助方法
+    llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* func, const std::string& name, llvm::Type* type);
     llvm::Value* codegen(ASTNode* node);
 
     // 声明处理
