@@ -488,6 +488,14 @@ void Checker::checkBinary(BinaryExpr* expr) {
     }
     // 检查字面量零除数
     checkLiteralDivZero(expr);
+    // 检查数组/结构体比较
+    if (expr->op == "==" || expr->op == "!=") {
+        std::string leftType = getExprType(expr->left.get());
+        std::string rightType = getExprType(expr->right.get());
+        if (isArrayOrStructType(leftType) || isArrayOrStructType(rightType)) {
+            error(expr->line, expr->col, "semantic error: array or struct cannot be compared");
+        }
+    }
     checkExpr(expr->left.get());
     checkExpr(expr->right.get());
 }
@@ -509,6 +517,15 @@ void Checker::checkAssignExpr(AssignExpr* expr) {
 
 bool Checker::isStructType(const std::string& typeName) {
     return structs.find(typeName) != structs.end();
+}
+
+bool Checker::isArrayOrStructType(const std::string& typeName) {
+    // 数组类型包含 "["，例如 "int32[]"
+    if (typeName.find('[') != std::string::npos) {
+        return true;
+    }
+    // 结构体类型在 structs 符号表中
+    return isStructType(typeName);
 }
 
 bool Checker::validateStructInit(const std::string& structName, InitListExpr* init, int line, int col) {
