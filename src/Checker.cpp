@@ -111,6 +111,8 @@ void Checker::checkStmt(ASTNode* stmt) {
         checkContinue(continueStmt);
     } else if (auto* exprStmt = dynamic_cast<ExprStmt*>(stmt)) {
         checkExprStmt(exprStmt);
+    } else if (auto* assign = dynamic_cast<AssignExpr*>(stmt)) {
+        checkAssignExpr(assign);
     } else if (auto* blockStmt = dynamic_cast<BlockStmt*>(stmt)) {
         checkBlock(blockStmt);
     }
