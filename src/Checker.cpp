@@ -274,7 +274,8 @@ void Checker::checkExpr(ASTNode* expr) {
         checkBinary(bin);
         return;  // checkBinary already calls checkExpr on children
     } else if (auto* un = dynamic_cast<UnaryExpr*>(expr)) {
-        checkExpr(un->operand.get());
+        checkUnary(un);
+        return;  // checkUnary already calls checkExpr on children
     } else if (auto* call = dynamic_cast<CallExpr*>(expr)) {
         for (auto& arg : call->args) {
             checkExpr(arg.get());
@@ -450,12 +451,24 @@ bool Checker::isSupportedBinaryOp(const std::string& op) {
            op == "&&" || op == "||";
 }
 
+bool Checker::isSupportedUnaryOp(const std::string& op) {
+    // 支持的一元运算符：! (逻辑非) 和 - (负数)
+    return op == "!" || op == "-";
+}
+
 void Checker::checkBinary(BinaryExpr* expr) {
     if (!isSupportedBinaryOp(expr->op)) {
         error(0, 0, "semantic error: unsupported binary operator '" + expr->op + "'");
     }
     checkExpr(expr->left.get());
     checkExpr(expr->right.get());
+}
+
+void Checker::checkUnary(UnaryExpr* expr) {
+    if (!isSupportedUnaryOp(expr->op)) {
+        error(0, 0, "semantic error: unsupported unary operator '" + expr->op + "'");
+    }
+    checkExpr(expr->operand.get());
 }
 
 bool Checker::isStructType(const std::string& typeName) {
