@@ -340,9 +340,14 @@ std::unique_ptr<ASTNode> Parser::parseExpr() {
 
 std::unique_ptr<ASTNode> Parser::parseOrExpr() {
     auto left = parseAndExpr();
-    while (match(TokenKind::OR)) {
+    while (check(TokenKind::OR)) {
+        int line = current.line;
+        int col = current.col;
+        advance();
         auto node = std::make_unique<BinaryExpr>();
         node->op = "||";
+        node->line = line;
+        node->col = col;
         node->left = std::move(left);
         node->right = parseAndExpr();
         left = std::move(node);
@@ -352,9 +357,14 @@ std::unique_ptr<ASTNode> Parser::parseOrExpr() {
 
 std::unique_ptr<ASTNode> Parser::parseAndExpr() {
     auto left = parseEqualityExpr();
-    while (match(TokenKind::AND)) {
+    while (check(TokenKind::AND)) {
+        int line = current.line;
+        int col = current.col;
+        advance();
         auto node = std::make_unique<BinaryExpr>();
         node->op = "&&";
+        node->line = line;
+        node->col = col;
         node->left = std::move(left);
         node->right = parseEqualityExpr();
         left = std::move(node);
@@ -365,15 +375,25 @@ std::unique_ptr<ASTNode> Parser::parseAndExpr() {
 std::unique_ptr<ASTNode> Parser::parseEqualityExpr() {
     auto left = parseRelationalExpr();
     while (true) {
-        if (match(TokenKind::EQ)) {
+        if (check(TokenKind::EQ)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "==";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseRelationalExpr();
             left = std::move(node);
-        } else if (match(TokenKind::NE)) {
+        } else if (check(TokenKind::NE)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "!=";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseRelationalExpr();
             left = std::move(node);
@@ -387,27 +407,47 @@ std::unique_ptr<ASTNode> Parser::parseEqualityExpr() {
 std::unique_ptr<ASTNode> Parser::parseRelationalExpr() {
     auto left = parseAdditiveExpr();
     while (true) {
-        if (match(TokenKind::LT)) {
+        if (check(TokenKind::LT)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "<";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseAdditiveExpr();
             left = std::move(node);
-        } else if (match(TokenKind::LE)) {
+        } else if (check(TokenKind::LE)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "<=";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseAdditiveExpr();
             left = std::move(node);
-        } else if (match(TokenKind::GT)) {
+        } else if (check(TokenKind::GT)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = ">";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseAdditiveExpr();
             left = std::move(node);
-        } else if (match(TokenKind::GE)) {
+        } else if (check(TokenKind::GE)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = ">=";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseAdditiveExpr();
             left = std::move(node);
@@ -421,15 +461,25 @@ std::unique_ptr<ASTNode> Parser::parseRelationalExpr() {
 std::unique_ptr<ASTNode> Parser::parseAdditiveExpr() {
     auto left = parseMultiplicativeExpr();
     while (true) {
-        if (match(TokenKind::PLUS)) {
+        if (check(TokenKind::PLUS)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "+";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseMultiplicativeExpr();
             left = std::move(node);
-        } else if (match(TokenKind::MINUS)) {
+        } else if (check(TokenKind::MINUS)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "-";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseMultiplicativeExpr();
             left = std::move(node);
@@ -443,21 +493,36 @@ std::unique_ptr<ASTNode> Parser::parseAdditiveExpr() {
 std::unique_ptr<ASTNode> Parser::parseMultiplicativeExpr() {
     auto left = parseUnaryExpr();
     while (true) {
-        if (match(TokenKind::STAR)) {
+        if (check(TokenKind::STAR)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "*";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseUnaryExpr();
             left = std::move(node);
-        } else if (match(TokenKind::SLASH)) {
+        } else if (check(TokenKind::SLASH)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "/";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseUnaryExpr();
             left = std::move(node);
-        } else if (match(TokenKind::PERCENT)) {
+        } else if (check(TokenKind::PERCENT)) {
+            int line = current.line;
+            int col = current.col;
+            advance();
             auto node = std::make_unique<BinaryExpr>();
             node->op = "%";
+            node->line = line;
+            node->col = col;
             node->left = std::move(left);
             node->right = parseUnaryExpr();
             left = std::move(node);
@@ -469,15 +534,25 @@ std::unique_ptr<ASTNode> Parser::parseMultiplicativeExpr() {
 }
 
 std::unique_ptr<ASTNode> Parser::parseUnaryExpr() {
-    if (match(TokenKind::NOT)) {
+    if (check(TokenKind::NOT)) {
+        int line = current.line;
+        int col = current.col;
+        advance();
         auto node = std::make_unique<UnaryExpr>();
         node->op = "!";
+        node->line = line;
+        node->col = col;
         node->operand = parseUnaryExpr();
         return node;
     }
-    if (match(TokenKind::MINUS)) {
+    if (check(TokenKind::MINUS)) {
+        int line = current.line;
+        int col = current.col;
+        advance();
         auto node = std::make_unique<UnaryExpr>();
         node->op = "-";
+        node->line = line;
+        node->col = col;
         node->operand = parseUnaryExpr();
         return node;
     }

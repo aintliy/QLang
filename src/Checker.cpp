@@ -456,10 +456,36 @@ bool Checker::isSupportedUnaryOp(const std::string& op) {
     return op == "!" || op == "-";
 }
 
+bool Checker::isLiteralZero(ASTNode* expr) {
+    if (auto* lit = dynamic_cast<LiteralExpr*>(expr)) {
+        if (lit->literal.kind == TokenKind::INT_LIT) {
+            try {
+                int value = std::stoi(lit->literal.lexeme);
+                return value == 0;
+            } catch (...) {
+                return false;
+            }
+        }
+    }
+    return false;
+}
+
+bool Checker::checkLiteralDivZero(BinaryExpr* expr) {
+    if (expr->op == "/" || expr->op == "%") {
+        if (isLiteralZero(expr->right.get())) {
+            error(expr->line, expr->col, "semantic error: division by literal zero");
+            return true;
+        }
+    }
+    return false;
+}
+
 void Checker::checkBinary(BinaryExpr* expr) {
     if (!isSupportedBinaryOp(expr->op)) {
-        error(0, 0, "semantic error: unsupported binary operator '" + expr->op + "'");
+        error(expr->line, expr->col, "semantic error: unsupported binary operator '" + expr->op + "'");
     }
+    // 检查字面量零除数
+    checkLiteralDivZero(expr);
     checkExpr(expr->left.get());
     checkExpr(expr->right.get());
 }

@@ -124,6 +124,8 @@ public:
     std::string op;
     std::unique_ptr<ASTNode> left;
     std::unique_ptr<ASTNode> right;
+    int line;
+    int col;
     void dump() const override;
 };
 
@@ -131,6 +133,8 @@ class UnaryExpr : public ASTNode {
 public:
     std::string op;
     std::unique_ptr<ASTNode> operand;
+    int line;
+    int col;
     void dump() const override;
 };
 

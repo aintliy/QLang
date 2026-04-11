@@ -77,6 +77,10 @@ private:
     bool isSupportedBinaryOp(const std::string& op);
     bool isSupportedUnaryOp(const std::string& op);
 
+    // 字面量零除数检查辅助函数
+    bool isLiteralZero(ASTNode* expr);
+    bool checkLiteralDivZero(BinaryExpr* expr);
+
     // 验证辅助函数
     void checkAssignCompatibility(ASTNode* target, ASTNode* value, int line, int col);
     void checkReturn(ASTNode* ret, int line, int col);
