@@ -266,10 +266,16 @@ std::string Checker::getExprType(ASTNode* expr) {
     if (auto* ident = dynamic_cast<IdentExpr*>(expr)) {
         // Look up identifier type from scope chain
         std::string type = lookupVar(ident->name);
-        if (!type.empty()) return type;
-        // If not found in scope, check function params
-        // TODO: implement param lookup
-        return "int32";
+        if (!type.empty()) {
+            return type;
+        }
+        // Check if it's a global variable not yet in scope (forward reference)
+        if (globalVars.count(ident->name)) {
+            error(0, 0, "semantic error: global variable '" + ident->name + "' used before declaration");
+        } else {
+            error(0, 0, "semantic error: use of undeclared identifier '" + ident->name + "'");
+        }
+        return "int32"; // Return something to allow continued analysis
     }
     if (auto* bin = dynamic_cast<BinaryExpr*>(expr)) {
         if (bin->op == "==" || bin->op == "!=" || bin->op == "<" ||
