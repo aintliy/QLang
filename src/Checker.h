@@ -60,6 +60,7 @@ private:
     std::string currentFuncReturnType;
     bool inLoop = false;    // 用于 break/continue
     bool inSwitch = false;  // 用于 break
+    int loopDepth = 0;      // 循环嵌套深度（用于 continue 跳转到循环 increment）
 
     // 第一遍：收集结构体和函数定义
     void pass1_collectDefinitions(ASTNode* node);

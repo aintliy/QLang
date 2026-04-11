@@ -154,11 +154,14 @@ void Checker::checkWhile(WhileStmt* stmt) {
         checkExpr(stmt->condition.get());
     }
     bool prevInLoop = inLoop;
+    int prevLoopDepth = loopDepth;
     inLoop = true;
+    loopDepth++;
     if (stmt->body) {
         checkStmt(stmt->body.get());
     }
     inLoop = prevInLoop;
+    loopDepth = prevLoopDepth;
 }
 
 void Checker::checkFor(ForStmt* stmt) {
@@ -175,11 +178,14 @@ void Checker::checkFor(ForStmt* stmt) {
         checkExpr(stmt->update.get());
     }
     bool prevInLoop = inLoop;
+    int prevLoopDepth = loopDepth;
     inLoop = true;
+    loopDepth++;
     if (stmt->body) {
         checkStmt(stmt->body.get());
     }
     inLoop = prevInLoop;
+    loopDepth = prevLoopDepth;
 }
 
 void Checker::checkSwitch(SwitchStmt* stmt) {
