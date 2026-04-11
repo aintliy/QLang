@@ -187,7 +187,8 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
     while (!check(TokenKind::RBRACE) && !check(TokenKind::END_OF_FILE)) {
         // block_item = var_decl ";" | statement
         if (check(TokenKind::KEYWORD_INT32) || check(TokenKind::KEYWORD_FLOAT64) ||
-            check(TokenKind::KEYWORD_BOOL) || check(TokenKind::KEYWORD_STRING)) {
+            check(TokenKind::KEYWORD_BOOL) || check(TokenKind::KEYWORD_STRING) ||
+            check(TokenKind::KEYWORD_STRUCT)) {
             block->items.push_back(parseVarDecl());
         } else {
             block->items.push_back(parseStatement());

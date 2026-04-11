@@ -516,7 +516,13 @@ void Checker::checkAssignExpr(AssignExpr* expr) {
 }
 
 bool Checker::isStructType(const std::string& typeName) {
-    return structs.find(typeName) != structs.end();
+    // typeName can be "Point" or "struct Point"
+    if (structs.find(typeName) != structs.end()) return true;
+    // Check with "struct " prefix stripped
+    if (typeName.substr(0, 7) == "struct ") {
+        return structs.find(typeName.substr(7)) != structs.end();
+    }
+    return false;
 }
 
 bool Checker::isArrayOrStructType(const std::string& typeName) {
