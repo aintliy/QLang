@@ -63,6 +63,10 @@ void Checker::pass2_checkBody(ASTNode* node) {
         }
         if (auto* funcDef = dynamic_cast<FuncDefNode*>(decl.get())) {
             currentFuncReturnType = funcDef->returnType;
+            // Add function parameters to scope before checking body
+            for (auto& param : funcDef->params) {
+                addToScope(param.second, param.first); // name, type
+            }
             if (funcDef->body) {
                 auto* blockBody = dynamic_cast<BlockStmt*>(funcDef->body.get());
                 if (blockBody) {
