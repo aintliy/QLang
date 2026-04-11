@@ -119,6 +119,10 @@ void Checker::checkVarDecl(VarDeclNode* decl) {
             error(0, 0, "semantic error: cannot convert '" + valueType +
                   "' to '" + targetType + "'");
         }
+        // Validate struct init list if applicable
+        if (auto* initList = dynamic_cast<InitListExpr*>(decl->initializer.get())) {
+            validateStructInit(decl->type, initList, 0, 0);
+        }
     }
     // Add variable to current scope for type resolution
     addToScope(decl->name, decl->type);
