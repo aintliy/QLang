@@ -120,6 +120,8 @@ void Checker::checkStmt(ASTNode* stmt) {
 }
 
 void Checker::checkVarDecl(VarDeclNode* decl) {
+    // 检查数组大小限制
+    checkArraySizeLimit(decl->type, 0, 0);
     if (decl->initializer) {
         checkExpr(decl->initializer.get());
         // Verify initializer type is compatible with declared type
@@ -478,6 +480,43 @@ bool Checker::checkLiteralDivZero(BinaryExpr* expr) {
             error(expr->line, expr->col, "semantic error: division by literal zero");
             return true;
         }
+    }
+    return false;
+}
+
+int64_t Checker::parseArraySize(const std::string& type) {
+    // 解析类型字符串如 "int32[100]" 返回维度大小
+    // 查找第一个 '[' 和 ']'
+    size_t leftBracket = type.find('[');
+    size_t rightBracket = type.find(']');
+    if (leftBracket == std::string::npos || rightBracket == std::string::npos) {
+        return 0;  // 不是数组类型
+    }
+    std::string sizeStr = type.substr(leftBracket + 1, rightBracket - leftBracket - 1);
+    try {
+        return std::stoll(sizeStr);
+    } catch (...) {
+        return 0;
+    }
+}
+
+bool Checker::checkArraySizeLimit(const std::string& type, int line, int col) {
+    // 检查数组大小是否超过限制
+    size_t leftBracket = type.find('[');
+    size_t rightBracket = type.find(']');
+    if (leftBracket == std::string::npos || rightBracket == std::string::npos) {
+        return false;  // 不是数组类型
+    }
+    std::string sizeStr = type.substr(leftBracket + 1, rightBracket - leftBracket - 1);
+    try {
+        int64_t size = std::stoll(sizeStr);
+        if (size > MAX_ARRAY_SIZE) {
+            error(line, col, "semantic error: array size " + std::to_string(size) +
+                      " exceeds maximum " + std::to_string(MAX_ARRAY_SIZE));
+            return true;
+        }
+    } catch (...) {
+        // 解析失败，忽略
     }
     return false;
 }
