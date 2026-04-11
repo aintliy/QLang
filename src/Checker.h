@@ -34,6 +34,9 @@ private:
     std::unordered_map<std::string, StructInfo> structs;
     std::unordered_map<std::string, FuncInfo> funcs;
 
+    // 变量符号表（用于 IdentExpr 类型解析）
+    std::unordered_map<std::string, std::string> localVars;
+
     // 当前函数上下文（用于返回类型检查）
     std::string currentFuncReturnType;
     bool inLoop = false;    // 用于 break/continue

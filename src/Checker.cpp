@@ -101,6 +101,8 @@ void Checker::checkVarDecl(VarDeclNode* decl) {
                   "' to '" + targetType + "'");
         }
     }
+    // Add variable to local scope for type resolution
+    localVars[decl->name] = decl->type;
 }
 
 void Checker::checkIf(IfStmt* stmt) {
@@ -236,9 +238,14 @@ std::string Checker::getExprType(ASTNode* expr) {
         if (tk.kind == TokenKind::STRING_LIT) return "string";
         if (tk.kind == TokenKind::KEYWORD_TRUE || tk.kind == TokenKind::KEYWORD_FALSE) return "bool";
     }
-    if (dynamic_cast<IdentExpr*>(expr)) {
-        // 标识符需要从符号表追踪类型
-        // 目前假设为 int32（在后续任务中完善）
+    if (auto* ident = dynamic_cast<IdentExpr*>(expr)) {
+        // Look up identifier type from local variable table
+        auto it = localVars.find(ident->name);
+        if (it != localVars.end()) {
+            return it->second;
+        }
+        // If not found in local vars, check function params
+        // TODO: implement param lookup
         return "int32";
     }
     if (auto* bin = dynamic_cast<BinaryExpr*>(expr)) {
