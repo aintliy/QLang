@@ -69,6 +69,11 @@ void Checker::pass2_checkBody(ASTNode* node) {
                     checkBlock(blockBody);
                 }
             }
+            // 检查非 void 函数是否有返回路径
+            if (funcDef->returnType != "void" && !checkFunctionReturnPaths(funcDef)) {
+                error(0, 0, "semantic error: non-void function '" + funcDef->name +
+                          "' must have a return statement");
+            }
             currentFuncReturnType = "";
         }
     }
@@ -457,4 +462,49 @@ bool Checker::validateStructInit(const std::string& structName, InitListExpr* in
     // 字段必须按顺序初始化（QLang 规则）
     // 目前只检查元素数量，顺序由 AST 结构保证
     return true;
+}
+
+bool Checker::hasReturnStatement(ASTNode* stmt) {
+    if (!stmt) return false;
+
+    // ReturnStmt 本身算作返回
+    if (dynamic_cast<ReturnStmt*>(stmt)) {
+        return true;
+    }
+
+    // BlockStmt 检查其中每条语句
+    if (auto* block = dynamic_cast<BlockStmt*>(stmt)) {
+        for (auto& item : block->items) {
+            if (hasReturnStatement(item.get())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // IfStmt: 检查 then 和 else 分支
+    if (auto* ifStmt = dynamic_cast<IfStmt*>(stmt)) {
+        bool thenHasReturn = hasReturnStatement(ifStmt->thenBranch.get());
+        bool elseHasReturn = hasReturnStatement(ifStmt->elseBranch.get());
+        // 两个分支都有 return 才算有返回
+        return thenHasReturn && elseHasReturn;
+    }
+
+    // WhileStmt/ForStmt: 循环内的 return 不算作函数返回路径保证
+    // 因为循环可能不执行
+
+    // 其他语句不包含 return
+    return false;
+}
+
+bool Checker::checkFunctionReturnPaths(FuncDefNode* func) {
+    if (func->returnType == "void") {
+        return true;  // void 函数不需要返回
+    }
+
+    if (!func->body) {
+        return false;  // 无函数体视为无返回
+    }
+
+    return hasReturnStatement(func->body.get());
 }

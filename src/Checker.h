@@ -80,6 +80,10 @@ private:
     void checkReturn(ASTNode* ret, int line, int col);
     bool isConstantIntExpr(ASTNode* expr);
 
+    // 函数返回路径分析
+    bool hasReturnStatement(ASTNode* stmt);
+    bool checkFunctionReturnPaths(FuncDefNode* func);
+
     // 语句检查
     void checkStmt(ASTNode* stmt);
     void checkVarDecl(VarDeclNode* decl);
