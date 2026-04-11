@@ -196,7 +196,12 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
         checkExpr(stmt->expr.get());
     }
     bool prevInSwitch = inSwitch;
+    bool prevInLoop = inLoop;
+    int prevLoopDepth = loopDepth;
     inSwitch = true;
+    inLoop = false;  // switch 内不是循环，break 可以，continue 不行
+    loopDepth = 0;
+
     for (auto& casePair : stmt->cases) {
         if (casePair.first) {
             if (!isConstantIntExpr(casePair.first.get())) {
@@ -207,11 +212,34 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
         for (auto& caseItem : casePair.second) {
             checkStmt(caseItem.get());
         }
+        // 检查 case 的最后一条语句是否为 break
+        if (!casePair.second.empty()) {
+            auto* lastStmt = casePair.second.back().get();
+            bool hasBreak = false;
+            if (auto* breakStmt = dynamic_cast<BreakStmt*>(lastStmt)) {
+                hasBreak = true;
+            }
+            if (!hasBreak) {
+                error(0, 0, "semantic error: switch case must end with break");
+            }
+        }
     }
-    for (auto& defaultItem : stmt->defaultBody) {
-        checkStmt(defaultItem.get());
+
+    // 检查 default 分支（如果有）最后一条语句是否为 break
+    if (!stmt->defaultBody.empty()) {
+        auto* lastDefaultStmt = stmt->defaultBody.back().get();
+        bool hasBreak = false;
+        if (auto* breakStmt = dynamic_cast<BreakStmt*>(lastDefaultStmt)) {
+            hasBreak = true;
+        }
+        if (!hasBreak) {
+            error(0, 0, "semantic error: switch default must end with break");
+        }
     }
+
     inSwitch = prevInSwitch;
+    inLoop = prevInLoop;
+    loopDepth = prevLoopDepth;
 }
 
 void Checker::checkBreak(BreakStmt* stmt) {
