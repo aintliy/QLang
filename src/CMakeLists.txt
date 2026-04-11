@@ -36,4 +36,4 @@ target_link_libraries(qlang_checker PUBLIC qlang_ast qlang_diagnostics)
 
 # Driver (for testing)
 add_executable(qlang_driver Driver/main.cpp)
-target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_checker LLVMCore)
+target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_parser qlang_checker LLVMCore)
