@@ -74,6 +74,7 @@ private:
     bool isFloat64(ASTNode* expr);
     bool isBool(ASTNode* expr);
     bool canImplicitConvert(const std::string& from, const std::string& to);
+    bool isSupportedBinaryOp(const std::string& op);
 
     // 验证辅助函数
     void checkAssignCompatibility(ASTNode* target, ASTNode* value, int line, int col);

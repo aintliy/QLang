@@ -271,8 +271,8 @@ void Checker::checkExpr(ASTNode* expr) {
     if (!expr) return;
 
     if (auto* bin = dynamic_cast<BinaryExpr*>(expr)) {
-        checkExpr(bin->left.get());
-        checkExpr(bin->right.get());
+        checkBinary(bin);
+        return;  // checkBinary already calls checkExpr on children
     } else if (auto* un = dynamic_cast<UnaryExpr*>(expr)) {
         checkExpr(un->operand.get());
     } else if (auto* call = dynamic_cast<CallExpr*>(expr)) {
@@ -440,6 +440,22 @@ void Checker::checkReturn(ASTNode* ret, int line, int col) {
 void Checker::checkReturn(ReturnStmt* stmt) {
     // Extract line/col from stmt if it has location info, otherwise use 0,0
     checkReturn(stmt->value.get(), 0, 0);
+}
+
+bool Checker::isSupportedBinaryOp(const std::string& op) {
+    // 支持的二元运算符
+    return op == "+" || op == "-" || op == "*" || op == "/" || op == "%" ||
+           op == "==" || op == "!=" || op == "<" || op == "<=" ||
+           op == ">" || op == ">=" ||
+           op == "&&" || op == "||";
+}
+
+void Checker::checkBinary(BinaryExpr* expr) {
+    if (!isSupportedBinaryOp(expr->op)) {
+        error(0, 0, "semantic error: unsupported binary operator '" + expr->op + "'");
+    }
+    checkExpr(expr->left.get());
+    checkExpr(expr->right.get());
 }
 
 bool Checker::isStructType(const std::string& typeName) {
