@@ -449,8 +449,24 @@ llvm::Value* CodeGen::codegen(ReturnStmt* node) {
     }
     return nullptr;
 }
-llvm::Value* CodeGen::codegen(BreakStmt* node) { return nullptr; }
-llvm::Value* CodeGen::codegen(ContinueStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(BreakStmt* node) {
+    if (loopTargetStack.empty()) {
+        error("BreakStmt: break must be inside loop or switch");
+        return nullptr;
+    }
+    LoopTarget& target = loopTargetStack.back();
+    builder->CreateBr(target.endBB);
+    return nullptr;
+}
+llvm::Value* CodeGen::codegen(ContinueStmt* node) {
+    if (loopTargetStack.empty()) {
+        error("ContinueStmt: continue must be inside loop");
+        return nullptr;
+    }
+    LoopTarget& target = loopTargetStack.back();
+    builder->CreateBr(target.incBB);
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(ExprStmt* node) {
     return codegen(node->expr.get());
 }
