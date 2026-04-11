@@ -75,9 +75,11 @@ void Checker::pass2_checkBody(ASTNode* node) {
 }
 
 void Checker::checkBlock(BlockStmt* stmt) {
+    enterScope();
     for (auto& item : stmt->items) {
         checkStmt(item.get());
     }
+    exitScope();
 }
 
 void Checker::checkStmt(ASTNode* stmt) {
