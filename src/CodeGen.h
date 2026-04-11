@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <map>
+#include <vector>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/IRBuilder.h>
@@ -54,6 +55,13 @@ private:
     llvm::Value* codegen(BreakStmt* node);
     llvm::Value* codegen(ContinueStmt* node);
     llvm::Value* codegen(ExprStmt* node);
+
+    // break/continue 跳转目标栈
+    struct LoopTarget {
+        llvm::BasicBlock* endBB;   // break 跳转目标
+        llvm::BasicBlock* incBB;   // continue 跳转目标（while 没有 increment）
+    };
+    std::vector<LoopTarget> loopTargetStack;
 
     // 表达式处理
     llvm::Value* codegen(LiteralExpr* node);

@@ -210,7 +210,59 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     currentFunction = nullptr;
     return func;
 }
-llvm::Value* CodeGen::codegen(VarDeclNode* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(VarDeclNode* node) {
+    if (!currentFunction) {
+        error("VarDeclNode: no current function");
+        return nullptr;
+    }
+
+    // 获取类型
+    llvm::Type* varType;
+    if (node->type == "int32") {
+        varType = builder->getInt32Ty();
+    } else if (node->type == "float64") {
+        varType = builder->getDoubleTy();
+    } else if (node->type == "bool") {
+        varType = builder->getInt1Ty();
+    } else if (node->type == "string") {
+        varType = llvm::PointerType::get(getStringType(), 0);
+    } else {
+        // 结构体类型
+        llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, node->type);
+        if (!structTy) {
+            error("VarDeclNode: unknown type: " + node->type);
+            return nullptr;
+        }
+        varType = structTy;
+    }
+
+    // 在入口块创建 alloca
+    llvm::Function* func = currentFunction;
+    llvm::AllocaInst* alloca = createEntryBlockAlloca(func, node->name, varType);
+
+    // 处理初始化器
+    if (node->initializer) {
+        llvm::Value* initVal = codegen(node->initializer.get());
+        if (!initVal) {
+            error("VarDeclNode: failed to codegen initializer");
+            return nullptr;
+        }
+        // 类型转换如果需要
+        if (initVal->getType() != varType) {
+            // 尝试数值转换
+            if (varType->isIntegerTy() && initVal->getType()->isIntegerTy()) {
+                if (varType->isIntegerTy(32) && initVal->getType()->isIntegerTy(1)) {
+                    initVal = builder->CreateZExt(initVal, varType, " initializer.conv");
+                }
+            }
+        }
+        builder->CreateStore(initVal, alloca);
+    }
+
+    // 添加到符号表
+    namedValues[node->name] = alloca;
+    return alloca;
+}
 llvm::Value* CodeGen::codegen(BlockStmt* node) {
     // 遍历块中的每个语句并生成代码
     for (auto& item : node->items) {
@@ -270,7 +322,53 @@ llvm::Value* CodeGen::codegen(IfStmt* node) {
 
     return nullptr;
 }
-llvm::Value* CodeGen::codegen(WhileStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(WhileStmt* node) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    // 创建 basic blocks
+    llvm::BasicBlock* condBB = llvm::BasicBlock::Create(*context, "while.cond", func);
+    llvm::BasicBlock* bodyBB = llvm::BasicBlock::Create(*context, "while.body", func);
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "while.end", func);
+
+    // 保存当前循环目标
+    LoopTarget target = {endBB, condBB};
+    loopTargetStack.push_back(target);
+
+    // 跳转到条件检查
+    builder->CreateBr(condBB);
+
+    // 条件检查
+    builder->SetInsertPoint(condBB);
+    llvm::Value* cond = codegen(node->condition.get());
+    if (!cond) {
+        error("WhileStmt: failed to codegen condition");
+        return nullptr;
+    }
+    // 转换为 i1
+    if (cond->getType()->isIntegerTy(32)) {
+        cond = builder->CreateICmpNE(cond, builder->getInt32(0), "cond.tobool");
+    } else if (cond->getType()->isDoubleTy()) {
+        cond = builder->CreateFCmpONE(cond, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "cond.tobool");
+    }
+    builder->CreateCondBr(cond, bodyBB, endBB);
+
+    // 循环体
+    builder->SetInsertPoint(bodyBB);
+    if (node->body) {
+        codegen(node->body.get());
+    }
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(condBB);
+    }
+
+    // 循环结束
+    builder->SetInsertPoint(endBB);
+
+    // 弹出循环目标
+    loopTargetStack.pop_back();
+
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(ForStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(SwitchStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ReturnStmt* node) {
@@ -489,17 +587,29 @@ llvm::Value* CodeGen::codegen(CastExpr* node) {
     return nullptr;
 }
 llvm::Value* CodeGen::codegen(AssignExpr* node) {
-    llvm::Value* target = codegen(node->target.get());
-    if (!target) {
-        error("AssignExpr: left side evaluation failed");
-        return nullptr;
-    }
-    if (!llvm::isa<llvm::AllocaInst>(target)) {
-        error("AssignExpr: left side must be a variable");
-        return nullptr;
+    // 对于标识符直接查符号表，获取 alloca
+    llvm::AllocaInst* alloca = nullptr;
+    if (auto* ident = dynamic_cast<IdentExpr*>(node->target.get())) {
+        auto it = namedValues.find(ident->name);
+        if (it != namedValues.end()) {
+            alloca = it->second;
+        }
     }
 
-    llvm::AllocaInst* alloca = llvm::cast<llvm::AllocaInst>(target);
+    // 其他情况（MemberExpr, IndexExpr）需要通过 codegen 获取地址
+    if (!alloca) {
+        llvm::Value* target = codegen(node->target.get());
+        if (!target) {
+            error("AssignExpr: left side evaluation failed");
+            return nullptr;
+        }
+        if (!llvm::isa<llvm::AllocaInst>(target)) {
+            error("AssignExpr: left side must be a variable");
+            return nullptr;
+        }
+        alloca = llvm::cast<llvm::AllocaInst>(target);
+    }
+
     llvm::Value* value = codegen(node->value.get());
     if (!value) {
         error("AssignExpr: failed to codegen value");
