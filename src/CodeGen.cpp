@@ -130,7 +130,12 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     } else if (node->returnType == "bool") {
         retType = builder->getInt1Ty();
     } else if (node->returnType == "void") {
-        retType = builder->getVoidTy();
+        // void main() 特殊处理：返回 i32
+        if (node->name == "main") {
+            retType = builder->getInt32Ty();
+        } else {
+            retType = builder->getVoidTy();
+        }
     } else if (node->returnType == "string") {
         retType = llvm::PointerType::get(getStringType(), 0);
     } else {
@@ -203,7 +208,12 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     // void 函数如果没生成 ret，则添加 ret void
     if (node->returnType == "void") {
         if (!builder->GetInsertBlock()->getTerminator()) {
-            builder->CreateRetVoid();
+            // void main() 特殊处理：返回 i32 0
+            if (node->name == "main") {
+                builder->CreateRet(builder->getInt32(0));
+            } else {
+                builder->CreateRetVoid();
+            }
         }
     }
 
