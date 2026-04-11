@@ -60,6 +60,7 @@ Token Lexer::nextToken() {
         case ']': return makeToken(TokenKind::RBRACKET, "]");
         case ',': return makeToken(TokenKind::COMMA, ",");
         case ';': return makeToken(TokenKind::SEMICOLON, ";");
+        case ':': return makeToken(TokenKind::COLON, ":");
         case '.': return makeToken(TokenKind::DOT, ".");
         case '+': return makeToken(TokenKind::PLUS, "+");
         case '-': return makeToken(TokenKind::MINUS, "-");
