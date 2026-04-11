@@ -55,8 +55,10 @@ void Checker::pass2_checkBody(ASTNode* node) {
 
     for (auto& decl : program->declarations) {
         if (auto* varDecl = dynamic_cast<VarDeclNode*>(decl.get())) {
-            // 全局变量：检查是否在使用前声明
-            // (因为我们按顺序遍历，所以只需检查之前是否见过)
+            // 全局变量：添加到全局符号表
+            globalVars.insert(varDecl->name);
+            // 添加到当前作用域（用于函数体内引用）
+            addToScope(varDecl->name, varDecl->type);
         }
         if (auto* funcDef = dynamic_cast<FuncDefNode*>(decl.get())) {
             currentFuncReturnType = funcDef->returnType;

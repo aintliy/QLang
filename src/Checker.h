@@ -2,6 +2,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "AST.h"
 
@@ -36,6 +37,9 @@ private:
 
     // 作用域栈（用于块作用域）
     std::vector<std::unordered_map<std::string, std::string>> scopeStack;
+
+    // 全局变量符号表（用于检查声明顺序）
+    std::unordered_set<std::string> globalVars;
 
     void enterScope() { scopeStack.push_back({}); }
     void exitScope() { if (!scopeStack.empty()) scopeStack.pop_back(); }
