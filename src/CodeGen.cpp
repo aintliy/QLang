@@ -223,7 +223,53 @@ llvm::Value* CodeGen::codegen(BlockStmt* node) {
     }
     return nullptr;
 }
-llvm::Value* CodeGen::codegen(IfStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(IfStmt* node) {
+    llvm::Value* cond = codegen(node->condition.get());
+    if (!cond) {
+        error("IfStmt: failed to codegen condition");
+        return nullptr;
+    }
+
+    // 将条件转换为 i1
+    if (cond->getType()->isIntegerTy(32)) {
+        cond = builder->CreateICmpNE(cond, builder->getInt32(0), "cond.tobool");
+    } else if (cond->getType()->isDoubleTy()) {
+        cond = builder->CreateFCmpONE(cond, llvm::ConstantFP::get(*context, llvm::APFloat(0.0)), "cond.tobool");
+    }
+
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+
+    // 创建 basic blocks
+    llvm::BasicBlock* thenBB = llvm::BasicBlock::Create(*context, "then", func);
+    llvm::BasicBlock* elseBB = llvm::BasicBlock::Create(*context, "else", func);
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "if.end", func);
+
+    // 条件分支
+    builder->CreateCondBr(cond, thenBB, elseBB);
+
+    // then 分支
+    builder->SetInsertPoint(thenBB);
+    if (node->thenBranch) {
+        codegen(node->thenBranch.get());
+    }
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(endBB);
+    }
+
+    // else 分支
+    builder->SetInsertPoint(elseBB);
+    if (node->elseBranch) {
+        codegen(node->elseBranch.get());
+    }
+    if (!builder->GetInsertBlock()->getTerminator()) {
+        builder->CreateBr(endBB);
+    }
+
+    // 继续执行点
+    builder->SetInsertPoint(endBB);
+
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(WhileStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ForStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(SwitchStmt* node) { return nullptr; }
