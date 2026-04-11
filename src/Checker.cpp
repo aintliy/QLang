@@ -21,7 +21,8 @@ void Checker::pass1_collectDefinitions(ASTNode* node) {
         if (auto* structDef = dynamic_cast<StructDefNode*>(decl.get())) {
             // 检查递归结构体
             for (auto& field : structDef->fields) {
-                if (field.first == structDef->name) {
+                // field.first can be "Node" or "struct Node"
+                if (field.first == structDef->name || field.first == ("struct " + structDef->name)) {
                     error(0, 0, "semantic error: recursive struct definition '" + structDef->name + "'");
                 }
             }
