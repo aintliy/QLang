@@ -227,6 +227,9 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
 
     // 检查 default 分支（如果有）最后一条语句是否为 break
     if (!stmt->defaultBody.empty()) {
+        for (auto& defaultItem : stmt->defaultBody) {
+            checkStmt(defaultItem.get());
+        }
         auto* lastDefaultStmt = stmt->defaultBody.back().get();
         bool hasBreak = false;
         if (auto* breakStmt = dynamic_cast<BreakStmt*>(lastDefaultStmt)) {
