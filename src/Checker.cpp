@@ -47,7 +47,10 @@ void Checker::pass2_checkBody(ASTNode* node) {
         if (auto* funcDef = dynamic_cast<FuncDefNode*>(decl.get())) {
             currentFuncReturnType = funcDef->returnType;
             if (funcDef->body) {
-                checkBlock(dynamic_cast<BlockStmt*>(funcDef->body.get()));
+                auto* blockBody = dynamic_cast<BlockStmt*>(funcDef->body.get());
+                if (blockBody) {
+                    checkBlock(blockBody);
+                }
             }
             currentFuncReturnType = "";
         }
@@ -90,6 +93,13 @@ void Checker::checkStmt(ASTNode* stmt) {
 void Checker::checkVarDecl(VarDeclNode* decl) {
     if (decl->initializer) {
         checkExpr(decl->initializer.get());
+        // Verify initializer type is compatible with declared type
+        std::string valueType = getExprType(decl->initializer.get());
+        std::string targetType = decl->type;
+        if (!canImplicitConvert(valueType, targetType)) {
+            error(0, 0, "semantic error: cannot convert '" + valueType +
+                  "' to '" + targetType + "'");
+        }
     }
 }
 
@@ -151,6 +161,8 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
         }
         checkExpr(stmt->expr.get());
     }
+    bool prevInSwitch = inSwitch;
+    inSwitch = true;
     for (auto& casePair : stmt->cases) {
         if (casePair.first) {
             if (!isConstantIntExpr(casePair.first.get())) {
@@ -162,8 +174,6 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
             checkStmt(caseItem.get());
         }
     }
-    bool prevInSwitch = inSwitch;
-    inSwitch = true;
     for (auto& defaultItem : stmt->defaultBody) {
         checkStmt(defaultItem.get());
     }
