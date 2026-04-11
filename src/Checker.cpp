@@ -283,8 +283,8 @@ void Checker::checkExpr(ASTNode* expr) {
     } else if (auto* cast = dynamic_cast<CastExpr*>(expr)) {
         checkExpr(cast->operand.get());
     } else if (auto* assign = dynamic_cast<AssignExpr*>(expr)) {
-        checkExpr(assign->target.get());
-        checkExpr(assign->value.get());
+        checkAssignExpr(assign);
+        return;  // checkAssignExpr already calls checkExpr on children
     } else if (auto* idx = dynamic_cast<IndexExpr*>(expr)) {
         checkExpr(idx->base.get());
         checkExpr(idx->index.get());
@@ -469,6 +469,14 @@ void Checker::checkUnary(UnaryExpr* expr) {
         error(0, 0, "semantic error: unsupported unary operator '" + expr->op + "'");
     }
     checkExpr(expr->operand.get());
+}
+
+void Checker::checkAssignExpr(AssignExpr* expr) {
+    // QLang 不支持复合赋值（+=, -=, *=, /=, %=）
+    // 赋值运算符只有简单的 =
+    // checkAssignExpr 目前只需要检查子表达式
+    checkExpr(expr->target.get());
+    checkExpr(expr->value.get());
 }
 
 bool Checker::isStructType(const std::string& typeName) {
