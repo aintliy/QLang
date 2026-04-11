@@ -435,7 +435,78 @@ llvm::Value* CodeGen::codegen(ForStmt* node) {
 
     return nullptr;
 }
-llvm::Value* CodeGen::codegen(SwitchStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(SwitchStmt* node) {
+    llvm::Value* cond = codegen(node->expr.get());
+    if (!cond) {
+        error("SwitchStmt: failed to codegen expression");
+        return nullptr;
+    }
+
+    // 确保条件是 i32
+    if (!cond->getType()->isIntegerTy(32)) {
+        error("SwitchStmt: switch expression must be int32");
+        return nullptr;
+    }
+
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "switch.end", func);
+
+    // 保存当前循环目标（switch 也有 break 目标）
+    LoopTarget target = {endBB, endBB}; // continue 在 switch 中跳到 end
+    loopTargetStack.push_back(target);
+
+    // 创建 switch 指令
+    llvm::SwitchInst* switchInst = builder->CreateSwitch(cond, endBB, node->cases.size());
+
+    // 为每个 case 生成代码
+    for (auto& casePair : node->cases) {
+        // casePair.first 是整数字面量表达式
+        llvm::Value* caseVal = codegen(casePair.first.get());
+        if (!caseVal || !caseVal->getType()->isIntegerTy(32)) {
+            error("SwitchStmt: case must be integer literal");
+            return nullptr;
+        }
+
+        llvm::BasicBlock* caseBB = llvm::BasicBlock::Create(*context, "case", func);
+        switchInst->addCase(llvm::cast<llvm::ConstantInt>(caseVal), caseBB);
+
+        builder->SetInsertPoint(caseBB);
+        for (auto& stmt : casePair.second) {
+            codegen(stmt.get());
+            if (builder->GetInsertBlock()->getTerminator()) {
+                break;
+            }
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(endBB);
+        }
+    }
+
+    // 处理 default 分支
+    if (!node->defaultBody.empty()) {
+        llvm::BasicBlock* defaultBB = llvm::BasicBlock::Create(*context, "default", func);
+        switchInst->setDefaultDest(defaultBB);
+
+        builder->SetInsertPoint(defaultBB);
+        for (auto& stmt : node->defaultBody) {
+            codegen(stmt.get());
+            if (builder->GetInsertBlock()->getTerminator()) {
+                break;
+            }
+        }
+        if (!builder->GetInsertBlock()->getTerminator()) {
+            builder->CreateBr(endBB);
+        }
+    }
+
+    // switch 结束
+    builder->SetInsertPoint(endBB);
+
+    // 弹出循环目标
+    loopTargetStack.pop_back();
+
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(ReturnStmt* node) {
     if (node->value) {
         llvm::Value* retVal = codegen(node->value.get());
