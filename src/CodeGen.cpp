@@ -227,7 +227,19 @@ llvm::Value* CodeGen::codegen(IfStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(WhileStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ForStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(SwitchStmt* node) { return nullptr; }
-llvm::Value* CodeGen::codegen(ReturnStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(ReturnStmt* node) {
+    if (node->value) {
+        llvm::Value* retVal = codegen(node->value.get());
+        if (!retVal) {
+            error("ReturnStmt: failed to codegen return value");
+            return nullptr;
+        }
+        builder->CreateRet(retVal);
+    } else {
+        builder->CreateRetVoid();
+    }
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(BreakStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ContinueStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ExprStmt* node) {
@@ -404,7 +416,10 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
         }
         args.push_back(argVal);
     }
-    llvm::CallInst* call = builder->CreateCall(func, args, "call.tmp");
+    llvm::CallInst* call = builder->CreateCall(func, args);
+    if (!func->getReturnType()->isVoidTy()) {
+        call->setName("call.tmp");
+    }
     return call;
 }
 llvm::Value* CodeGen::codegen(IndexExpr* node) { return nullptr; }
