@@ -201,11 +201,9 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
         checkExpr(stmt->expr.get());
     }
     bool prevInSwitch = inSwitch;
-    bool prevInLoop = inLoop;
-    int prevLoopDepth = loopDepth;
     inSwitch = true;
-    inLoop = false;  // switch 内不是循环，break 可以，continue 不行
-    loopDepth = 0;
+    // NOTE: Do NOT reset inLoop or loopDepth here!
+    // continue 在 switch 内但外层有循环时是有效的（跳转到外层循环的 increment）
 
     for (auto& casePair : stmt->cases) {
         if (casePair.first) {
@@ -217,15 +215,16 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
         for (auto& caseItem : casePair.second) {
             checkStmt(caseItem.get());
         }
-        // 检查 case 的最后一条语句是否为 break
+        // 检查 case 的最后一条语句是否为 break 或 continue
+        // continue 在 switch 内跳转到外层循环 increment，也算是有效结束（不会 fall-through）
         if (!casePair.second.empty()) {
             auto* lastStmt = casePair.second.back().get();
-            bool hasBreak = false;
-            if (auto* breakStmt = dynamic_cast<BreakStmt*>(lastStmt)) {
-                hasBreak = true;
+            bool hasBreakOrContinue = false;
+            if (dynamic_cast<BreakStmt*>(lastStmt) || dynamic_cast<ContinueStmt*>(lastStmt)) {
+                hasBreakOrContinue = true;
             }
-            if (!hasBreak) {
-                error(0, 0, "semantic error: switch case must end with break");
+            if (!hasBreakOrContinue) {
+                error(0, 0, "semantic error: switch case must end with break or continue");
             }
         }
     }
@@ -246,8 +245,8 @@ void Checker::checkSwitch(SwitchStmt* stmt) {
     }
 
     inSwitch = prevInSwitch;
-    inLoop = prevInLoop;
-    loopDepth = prevLoopDepth;
+    // Note: inLoop and loopDepth are NOT restored because we didn't save them
+    // They remain unchanged inside switch, allowing continue to work if outer loop exists
 }
 
 void Checker::checkBreak(BreakStmt* stmt) {
