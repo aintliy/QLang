@@ -95,4 +95,8 @@ private:
     void checkCall(CallExpr* expr);
     void checkCast(CastExpr* expr);
     void checkAssignExpr(AssignExpr* expr);
+
+    // 结构体相关检查
+    bool isStructType(const std::string& typeName);
+    bool validateStructInit(const std::string& structName, InitListExpr* init, int line, int col);
 };

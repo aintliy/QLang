@@ -300,8 +300,10 @@ std::string Checker::getExprType(ASTNode* expr) {
     if (auto* assign = dynamic_cast<AssignExpr*>(expr)) {
         return getExprType(assign->value.get());
     }
-    if (dynamic_cast<InitListExpr*>(expr)) {
-        return "int32"; // TODO: 从上下文推导
+    if (auto* initList = dynamic_cast<InitListExpr*>(expr)) {
+        // InitListExpr 本身不返回类型，需要从上下文确定
+        // 目前返回 int32 作为占位
+        return "int32";
     }
     return "int32";
 }
@@ -384,4 +386,25 @@ void Checker::checkReturn(ASTNode* ret, int line, int col) {
 void Checker::checkReturn(ReturnStmt* stmt) {
     // Extract line/col from stmt if it has location info, otherwise use 0,0
     checkReturn(stmt->value.get(), 0, 0);
+}
+
+bool Checker::isStructType(const std::string& typeName) {
+    return structs.find(typeName) != structs.end();
+}
+
+bool Checker::validateStructInit(const std::string& structName, InitListExpr* init, int line, int col) {
+    auto it = structs.find(structName);
+    if (it == structs.end()) return true; // 不是结构体，不检查
+
+    const auto& fields = it->second.fields;
+    if (init->elements.size() != fields.size()) {
+        error(line, col, "semantic error: struct '" + structName +
+                  "' initialization requires " + std::to_string(fields.size()) +
+                  " values but got " + std::to_string(init->elements.size()));
+        return false;
+    }
+
+    // 字段必须按顺序初始化（QLang 规则）
+    // 目前只检查元素数量，顺序由 AST 结构保证
+    return true;
 }
