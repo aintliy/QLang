@@ -19,6 +19,13 @@ void Checker::pass1_collectDefinitions(ASTNode* node) {
 
     for (auto& decl : program->declarations) {
         if (auto* structDef = dynamic_cast<StructDefNode*>(decl.get())) {
+            // 检查递归结构体
+            for (auto& field : structDef->fields) {
+                if (field.first == structDef->name) {
+                    error(0, 0, "semantic error: recursive struct definition '" + structDef->name + "'");
+                }
+            }
+
             StructInfo info;
             info.name = structDef->name;
             info.fields = structDef->fields;
@@ -43,7 +50,14 @@ void Checker::pass2_checkBody(ASTNode* node) {
     auto* program = dynamic_cast<ProgramNode*>(node);
     if (!program) return;
 
+    // 进入全局作用域
+    enterScope();
+
     for (auto& decl : program->declarations) {
+        if (auto* varDecl = dynamic_cast<VarDeclNode*>(decl.get())) {
+            // 全局变量：检查是否在使用前声明
+            // (因为我们按顺序遍历，所以只需检查之前是否见过)
+        }
         if (auto* funcDef = dynamic_cast<FuncDefNode*>(decl.get())) {
             currentFuncReturnType = funcDef->returnType;
             if (funcDef->body) {
@@ -55,6 +69,9 @@ void Checker::pass2_checkBody(ASTNode* node) {
             currentFuncReturnType = "";
         }
     }
+
+    // 退出全局作用域
+    exitScope();
 }
 
 void Checker::checkBlock(BlockStmt* stmt) {
@@ -101,8 +118,8 @@ void Checker::checkVarDecl(VarDeclNode* decl) {
                   "' to '" + targetType + "'");
         }
     }
-    // Add variable to local scope for type resolution
-    localVars[decl->name] = decl->type;
+    // Add variable to current scope for type resolution
+    addToScope(decl->name, decl->type);
 }
 
 void Checker::checkIf(IfStmt* stmt) {
@@ -239,12 +256,10 @@ std::string Checker::getExprType(ASTNode* expr) {
         if (tk.kind == TokenKind::KEYWORD_TRUE || tk.kind == TokenKind::KEYWORD_FALSE) return "bool";
     }
     if (auto* ident = dynamic_cast<IdentExpr*>(expr)) {
-        // Look up identifier type from local variable table
-        auto it = localVars.find(ident->name);
-        if (it != localVars.end()) {
-            return it->second;
-        }
-        // If not found in local vars, check function params
+        // Look up identifier type from scope chain
+        std::string type = lookupVar(ident->name);
+        if (!type.empty()) return type;
+        // If not found in scope, check function params
         // TODO: implement param lookup
         return "int32";
     }

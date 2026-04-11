@@ -34,8 +34,23 @@ private:
     std::unordered_map<std::string, StructInfo> structs;
     std::unordered_map<std::string, FuncInfo> funcs;
 
-    // 变量符号表（用于 IdentExpr 类型解析）
-    std::unordered_map<std::string, std::string> localVars;
+    // 作用域栈（用于块作用域）
+    std::vector<std::unordered_map<std::string, std::string>> scopeStack;
+
+    void enterScope() { scopeStack.push_back({}); }
+    void exitScope() { if (!scopeStack.empty()) scopeStack.pop_back(); }
+    void addToScope(const std::string& name, const std::string& type) {
+        if (!scopeStack.empty()) scopeStack.back()[name] = type;
+    }
+
+    // 在当前作用域链中查找变量类型（从内到外）
+    std::string lookupVar(const std::string& name) {
+        for (auto it = scopeStack.rbegin(); it != scopeStack.rend(); ++it) {
+            auto f = it->find(name);
+            if (f != it->end()) return f->second;
+        }
+        return "";
+    }
 
     // 当前函数上下文（用于返回类型检查）
     std::string currentFuncReturnType;
