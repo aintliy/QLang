@@ -211,7 +211,18 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     return func;
 }
 llvm::Value* CodeGen::codegen(VarDeclNode* node) { return nullptr; }
-llvm::Value* CodeGen::codegen(BlockStmt* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(BlockStmt* node) {
+    // 遍历块中的每个语句并生成代码
+    for (auto& item : node->items) {
+        codegen(item.get());
+        // 检查是否生成了 return/break/continue 等控制流语句
+        // 如果当前 block 已有 terminator，则停止生成
+        if (builder->GetInsertBlock()->getTerminator()) {
+            break;
+        }
+    }
+    return nullptr;
+}
 llvm::Value* CodeGen::codegen(IfStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(WhileStmt* node) { return nullptr; }
 llvm::Value* CodeGen::codegen(ForStmt* node) { return nullptr; }
