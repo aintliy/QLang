@@ -281,9 +281,14 @@ void Checker::checkExpr(ASTNode* expr) {
         checkUnary(un);
         return;  // checkUnary already calls checkExpr on children
     } else if (auto* call = dynamic_cast<CallExpr*>(expr)) {
+        // 进入函数调用，增加嵌套深度
+        currentNestingDepth++;
+        checkNestingDepth(0, 0);  // 0,0 是占位位置
         for (auto& arg : call->args) {
             checkExpr(arg.get());
         }
+        // 函数调用参数检查完毕，减少嵌套深度
+        currentNestingDepth--;
     } else if (auto* cast = dynamic_cast<CastExpr*>(expr)) {
         checkExpr(cast->operand.get());
     } else if (auto* assign = dynamic_cast<AssignExpr*>(expr)) {
@@ -519,6 +524,14 @@ bool Checker::checkArraySizeLimit(const std::string& type, int line, int col) {
         // 解析失败，忽略
     }
     return false;
+}
+
+void Checker::checkNestingDepth(int line, int col) {
+    if (currentNestingDepth > MAX_NESTING_DEPTH) {
+        error(line, col, "semantic error: function call nesting depth " +
+                  std::to_string(currentNestingDepth) +
+                  " exceeds maximum " + std::to_string(MAX_NESTING_DEPTH));
+    }
 }
 
 void Checker::checkBinary(BinaryExpr* expr) {

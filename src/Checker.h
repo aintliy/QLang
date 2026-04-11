@@ -72,6 +72,7 @@ private:
     // 数组大小检查辅助函数
     int64_t parseArraySize(const std::string& type);
     bool checkArraySizeLimit(const std::string& type, int line, int col);
+    void checkNestingDepth(int line, int col);
 
     // 第一遍：收集结构体和函数定义
     void pass1_collectDefinitions(ASTNode* node);
