@@ -65,7 +65,7 @@ compile_qlang() {
     log_info "Compiling $input..."
 
     # Step 1: Lexer + Parser + Sema + Codegen -> IR
-    "$BUILD_DIR/qlang_driver" "$input" -S -o "$BUILD_DIR/output.ll"
+    "$BUILD_DIR/src/qlang_driver" "$input" -S -o "$BUILD_DIR/output.ll"
 
     # Step 2: Compile IR -> object
     llc "$BUILD_DIR/output.ll" -o "$BUILD_DIR/output.o"
