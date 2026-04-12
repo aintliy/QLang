@@ -117,7 +117,7 @@ llvm::AllocaInst* CodeGen::createEntryBlockAlloca(llvm::Function* func, const st
     return tmpBuilder.CreateAlloca(type, nullptr, name);
 }
 
-llvm::Value* CodeGen::createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::string& name) {
+void CodeGen::createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::string& name) {
     llvm::Function* func = builder->GetInsertBlock()->getParent();
     llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "bounds.ok", func);
     llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "bounds.error", func);
@@ -139,8 +139,6 @@ llvm::Value* CodeGen::createBoundsCheck(llvm::Value* idx, int64_t arraySize, con
 
     // okBB: 继续执行
     builder->SetInsertPoint(okBB);
-
-    return nullptr;
 }
 
 int CodeGen::getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName) {
