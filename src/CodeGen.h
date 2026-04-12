@@ -41,7 +41,7 @@ private:
     llvm::Value* codegen(ASTNode* node);
 
     // 声明处理
-    llvm::Value* codegen(StructDefNode* node);
+    llvm::Type* codegen(StructDefNode* node);
     llvm::Value* codegen(FuncDefNode* node);
     llvm::Value* codegen(VarDeclNode* node);
 

@@ -91,7 +91,7 @@ llvm::AllocaInst* CodeGen::createEntryBlockAlloca(llvm::Function* func, const st
 }
 
 llvm::Value* CodeGen::codegen(ASTNode* node) {
-    if (auto* n = dynamic_cast<StructDefNode*>(node)) return codegen(n);
+    if (auto* n = dynamic_cast<StructDefNode*>(node)) { codegen(n); return nullptr; }
     if (auto* n = dynamic_cast<FuncDefNode*>(node)) return codegen(n);
     if (auto* n = dynamic_cast<VarDeclNode*>(node)) return codegen(n);
     if (auto* n = dynamic_cast<BlockStmt*>(node)) return codegen(n);
@@ -118,8 +118,37 @@ llvm::Value* CodeGen::codegen(ASTNode* node) {
     return nullptr;
 }
 
-// 存根实现 - 后续任务会填充
-llvm::Value* CodeGen::codegen(StructDefNode* node) { return nullptr; }
+llvm::Type* CodeGen::codegen(StructDefNode* node) {
+    // 构建结构体类型
+    std::vector<llvm::Type*> fieldTypes;
+    for (auto& field : node->fields) {
+        llvm::Type* fieldType;
+        if (field.first == "int32") {
+            fieldType = builder->getInt32Ty();
+        } else if (field.first == "float64") {
+            fieldType = builder->getDoubleTy();
+        } else if (field.first == "bool") {
+            fieldType = builder->getInt1Ty();
+        } else if (field.first == "string") {
+            fieldType = getStringType();
+        } else {
+            // 嵌套结构体类型
+            llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, field.first);
+            if (!structTy) {
+                error("StructDefNode: unknown field type: " + field.first);
+                return nullptr;
+            }
+            fieldType = structTy;
+        }
+        fieldTypes.push_back(fieldType);
+    }
+
+    // 创建结构体类型
+    llvm::StructType* structTy = llvm::StructType::create(*context, "struct " + node->name);
+    structTy->setBody(fieldTypes);
+
+    return structTy;
+}
 llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     // 确定返回类型
     llvm::Type* retType;
