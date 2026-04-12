@@ -391,9 +391,8 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
         llvm::Value* limit = builder->CreateLoad(builder->getInt32Ty(), stackLimit, "limit");
         llvm::Value* cmpDepth = builder->CreateICmpSGE(depth, limit, "cmp.depth");
 
-        llvm::Function* func = currentFunction;
-        llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "stack.ok", func);
-        llvm::BasicBlock* overflowBB = llvm::BasicBlock::Create(*context, "stack.overflow", func);
+        llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "stack.ok", currentFunction);
+        llvm::BasicBlock* overflowBB = llvm::BasicBlock::Create(*context, "stack.overflow", currentFunction);
 
         builder->CreateCondBr(cmpDepth, overflowBB, okBB);
 
@@ -1708,9 +1707,6 @@ void CodeGen::collectFunctionCalls(FuncDefNode* node) {
 
     // 使用递归遍历 AST 收集 CallExpr
     std::function<void(ASTNode*)> collect = [&](ASTNode* n) {
-        if (auto* call = dynamic_cast<CallExpr*>(n)) {
-            calls.push_back(call->callee);
-        }
         // 递归遍历所有子节点
         if (auto* block = dynamic_cast<BlockStmt*>(n)) {
             for (auto& item : block->items) collect(item.get());
