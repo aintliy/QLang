@@ -187,6 +187,8 @@ llvm::Type* CodeGen::codegen(StructDefNode* node) {
 llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     // 确定返回类型
     llvm::Type* retType;
+    std::vector<llvm::Type*> paramTypes;
+    size_t i = 0;
     if (node->returnType == "int32") {
         retType = builder->getInt32Ty();
     } else if (node->returnType == "float64") {
@@ -203,34 +205,76 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     } else if (node->returnType == "string") {
         retType = llvm::PointerType::get(getStringType(), 0);
     } else {
-        // 结构体类型 - 在 context 中查找
-        llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, node->returnType);
+        // 结构体类型 - sret 约定
+        llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, "struct " + node->returnType);
+        if (!structTy) {
+            // 尝试不带前缀
+            structTy = llvm::StructType::getTypeByName(*context, node->returnType);
+        }
         if (!structTy) {
             error("FuncDefNode: unknown return type: " + node->returnType);
             return nullptr;
         }
-        retType = structTy;
+        retType = builder->getVoidTy();  // sret: 返回 void
+
+        // 构建 sret 参数类型
+        llvm::PointerType* sretTy = llvm::PointerType::get(structTy, 0);
+
+        // 构建新的参数列表，开头插入 sret 指针
+        std::vector<llvm::Type*> newParamTypes;
+        newParamTypes.insert(newParamTypes.begin(), sretTy);
+
+        // 添加原始参数
+        for (auto& param : node->params) {
+            if (param.first == "int32") {
+                newParamTypes.push_back(builder->getInt32Ty());
+            } else if (param.first == "float64") {
+                newParamTypes.push_back(builder->getDoubleTy());
+            } else if (param.first == "bool") {
+                newParamTypes.push_back(builder->getInt1Ty());
+            } else if (param.first == "string") {
+                newParamTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else {
+                // 结构体类型参数 - 传引用
+                llvm::StructType* paramStructTy = llvm::StructType::getTypeByName(*context, "struct " + param.first);
+                if (!paramStructTy) {
+                    paramStructTy = llvm::StructType::getTypeByName(*context, param.first);
+                }
+                if (paramStructTy) {
+                    newParamTypes.push_back(llvm::PointerType::get(paramStructTy, 0));
+                } else {
+                    error("FuncDefNode: unknown param type: " + param.first);
+                    return nullptr;
+                }
+            }
+        }
+
+        paramTypes = newParamTypes;
+        // 设置标志表示这是 sret 函数
+        currentFunctionIsSret = true;
+        currentSretType = structTy;
     }
 
-    // 构建函数类型
-    std::vector<llvm::Type*> paramTypes;
-    for (auto& param : node->params) {
-        if (param.first == "int32") {
-            paramTypes.push_back(builder->getInt32Ty());
-        } else if (param.first == "float64") {
-            paramTypes.push_back(builder->getDoubleTy());
-        } else if (param.first == "bool") {
-            paramTypes.push_back(builder->getInt1Ty());
-        } else if (param.first == "string") {
-            paramTypes.push_back(llvm::PointerType::get(getStringType(), 0));
-        } else {
-            // 结构体类型参数 - 传引用
-            llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, param.first);
-            if (structTy) {
-                paramTypes.push_back(llvm::PointerType::get(structTy, 0));
+    // 构建函数类型 (非 sret 情况)
+    if (!currentFunctionIsSret) {
+        for (auto& param : node->params) {
+            if (param.first == "int32") {
+                paramTypes.push_back(builder->getInt32Ty());
+            } else if (param.first == "float64") {
+                paramTypes.push_back(builder->getDoubleTy());
+            } else if (param.first == "bool") {
+                paramTypes.push_back(builder->getInt1Ty());
+            } else if (param.first == "string") {
+                paramTypes.push_back(llvm::PointerType::get(getStringType(), 0));
             } else {
-                error("FuncDefNode: unknown param type: " + param.first);
-                return nullptr;
+                // 结构体类型参数 - 传引用
+                llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, param.first);
+                if (structTy) {
+                    paramTypes.push_back(llvm::PointerType::get(structTy, 0));
+                } else {
+                    error("FuncDefNode: unknown param type: " + param.first);
+                    return nullptr;
+                }
             }
         }
     }
@@ -240,10 +284,22 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
         funcType, llvm::Function::ExternalLinkage, node->name, module.get());
 
     // 设置参数名称
-    size_t i = 0;
+    i = 0;
     for (auto& arg : func->args()) {
-        if (i < node->params.size()) {
-            arg.setName(node->params[i].second);
+        if (currentFunctionIsSret) {
+            // sret 情况：跳过第一个参数（sret指针），其余对应 node->params
+            if (i == 0) {
+                i++;
+                continue;
+            }
+            // i-1 因为第一个参数是 sret
+            if (i - 1 < node->params.size()) {
+                arg.setName(node->params[i - 1].second);
+            }
+        } else {
+            if (i < node->params.size()) {
+                arg.setName(node->params[i].second);
+            }
         }
         i++;
     }
@@ -257,6 +313,13 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     // 为参数创建 alloca
     i = 0;
     for (auto& arg : func->args()) {
+        if (i == 0 && currentFunctionIsSret) {
+            // sret 参数：跳过，不创建 alloca
+            // 保存 sret 指针
+            currentSretArg = &arg;
+            i++;
+            continue;
+        }
         std::string argName = arg.getName().str();
         llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, arg.getType());
         builder->CreateStore(&arg, alloca);
@@ -282,6 +345,9 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     }
 
     currentFunction = nullptr;
+    currentFunctionIsSret = false;
+    currentSretType = nullptr;
+    currentSretArg = nullptr;
     return func;
 }
 llvm::Value* CodeGen::codegen(VarDeclNode* node) {
@@ -636,7 +702,54 @@ llvm::Value* CodeGen::codegen(ReturnStmt* node) {
             error("ReturnStmt: failed to codegen return value");
             return nullptr;
         }
-        builder->CreateRet(retVal);
+
+        // 检查是否是 sret 函数
+        if (currentFunctionIsSret) {
+            // sret: 使用 memcpy 将 retVal 复制到 sret 指针
+            llvm::Value* sretPtr = currentSretArg;
+            if (sretPtr) {
+                // 对于 sret，我们需要的是返回值的地址，而不是值本身
+                // retVal 可能是加载后的值，我们需要获取它的地址
+                // 如果返回值是一个变量（IdentExpr），我们可以从 namedValues 获取其地址
+                llvm::Value* srcPtr = nullptr;
+
+                // 检查是否是 IdentExpr
+                if (auto* ident = dynamic_cast<IdentExpr*>(node->value.get())) {
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) {
+                        srcPtr = it->second;  // 获取 alloca 的地址
+                    }
+                }
+
+                // 如果找不到地址（如表达式结果），则使用 retVal
+                if (!srcPtr) {
+                    srcPtr = retVal;
+                }
+
+                // 计算结构体大小
+                llvm::DataLayout dataLayout(module.get());
+                uint64_t structSize = dataLayout.getTypeAllocSize(currentSretType);
+
+                // 创建 memcpy - 使用 LLVM intrinsic
+                llvm::PointerType* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+                llvm::Value* destI8 = builder->CreateBitCast(sretPtr, i8PtrTy, "dest.i8");
+                llvm::Value* srcI8 = builder->CreateBitCast(srcPtr, i8PtrTy, "src.i8");
+
+                llvm::Function* memcpyFunc = llvm::Intrinsic::getDeclaration(
+                    module.get(), llvm::Intrinsic::memcpy,
+                    {i8PtrTy, i8PtrTy, builder->getInt64Ty()});
+
+                builder->CreateCall(memcpyFunc, {
+                    destI8,
+                    srcI8,
+                    builder->getInt64(structSize),
+                    builder->getInt1(false)
+                });
+            }
+            builder->CreateRetVoid();
+        } else {
+            builder->CreateRet(retVal);
+        }
     } else {
         builder->CreateRetVoid();
     }

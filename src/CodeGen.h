@@ -51,6 +51,11 @@ private:
     // 当前函数
     llvm::Function* currentFunction = nullptr;
 
+    // sret 函数状态
+    bool currentFunctionIsSret = false;
+    llvm::StructType* currentSretType = nullptr;
+    llvm::Value* currentSretArg = nullptr;
+
     // 赋值左侧标记
     bool leftSide = false;
 
