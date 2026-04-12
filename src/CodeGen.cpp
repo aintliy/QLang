@@ -1344,6 +1344,28 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
             return nullptr;
         }
         arr = it->second;  // 获取 alloca (指针)
+
+        // 如果是参数且不是取地址上下文，需要加载参数的值
+        // 因为 IdentExpr 对参数返回 alloca（不加载），
+        // 但指针参数（如数组）的 alloca 存储的是指针值，
+        // 而不是数组数据本身
+        if (!leftSide) {
+            // 检查是否是参数（通过判断类型是否为指针且不是局部数组）
+            llvm::Type* allocaType = arr->getType();
+            if (allocaType->isPointerTy()) {
+                // 这可能是数组参数。检查 varDeclNodes 是否存在
+                // 如果不存在于 varDeclNodes，很可能是参数
+                auto varIt = varDeclNodes.find(ident->name);
+                if (varIt == varDeclNodes.end()) {
+                    // 参数：加载其值（指针）再使用
+                    // alloca 的类型是指向参数类型的指针，加载后得到参数值（指针）
+                    if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(arr)) {
+                        llvm::Type* paramType = allocaInst->getAllocatedType();
+                        arr = builder->CreateLoad(paramType, arr, ident->name + ".val");
+                    }
+                }
+            }
+        }
     } else if (auto* innerIndex = dynamic_cast<IndexExpr*>(node->base.get())) {
         // 多维数组下标如 matrix[0][1]
         // base 是 IndexExpr (matrix[0])，需要特殊处理
