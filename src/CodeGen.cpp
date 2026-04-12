@@ -965,7 +965,15 @@ llvm::Value* CodeGen::codegen(IdentExpr* node) {
     if (leftSide) {
         return it->second;
     }
-    return builder->CreateLoad(it->second->getAllocatedType(), it->second, node->name);
+    // 对于 string 类型，返回 alloca 指针而非加载后的 struct 值
+    llvm::Type* allocType = it->second->getAllocatedType();
+    if (allocType->isStructTy()) {
+        llvm::StructType* st = llvm::dyn_cast<llvm::StructType>(allocType);
+        if (st && st->getName() == "string") {
+            return it->second;  // 返回 alloca 指针
+        }
+    }
+    return builder->CreateLoad(allocType, it->second, node->name);
 }
 llvm::Value* CodeGen::codegen(BinaryExpr* node) {
     llvm::Value* left = codegen(node->left.get());
@@ -1213,7 +1221,7 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
 
     std::vector<llvm::Value*> args;
 
-    if (isSret) {
+    if (isSret && sretStructTy) {
         // 为 sret 分配临时空间
         llvm::AllocaInst* tempRet = createEntryBlockAlloca(
             currentFunction, "ret.tmp", sretStructTy);
@@ -1231,7 +1239,7 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
 
     llvm::CallInst* call = builder->CreateCall(callee, args);
 
-    if (isSret) {
+    if (isSret && sretStructTy) {
         // sret 调用返回 void，加载临时空间的值作为结果
         llvm::Value* result = builder->CreateLoad(sretStructTy, args[0], "ret.val");
         return result;
