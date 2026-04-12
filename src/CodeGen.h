@@ -70,6 +70,8 @@ private:
 
     // 辅助方法
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* func, const std::string& name, llvm::Type* type);
+    // 数组越界检查
+    llvm::Value* createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::string& name);
     int getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName);
     llvm::Value* codegen(ASTNode* node);
 

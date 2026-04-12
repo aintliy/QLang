@@ -117,6 +117,32 @@ llvm::AllocaInst* CodeGen::createEntryBlockAlloca(llvm::Function* func, const st
     return tmpBuilder.CreateAlloca(type, nullptr, name);
 }
 
+llvm::Value* CodeGen::createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::string& name) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "bounds.ok", func);
+    llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "bounds.error", func);
+
+    // 检查 idx < 0
+    llvm::Value* cmpLow = builder->CreateICmpSLT(idx, builder->getInt32(0), "cmp.low");
+    // 检查 idx >= arraySize
+    llvm::Value* cmpHigh = builder->CreateICmpSGE(idx, builder->getInt32(arraySize), "cmp.high");
+    // out of bounds = low || high
+    llvm::Value* cmpOut = builder->CreateOr(cmpLow, cmpHigh, "cmp.out");
+
+    builder->CreateCondBr(cmpOut, errorBB, okBB);
+
+    // errorBB: 调用 abort
+    builder->SetInsertPoint(errorBB);
+    llvm::Function* abortFunc = module->getFunction("abort");
+    builder->CreateCall(abortFunc);
+    builder->CreateUnreachable();
+
+    // okBB: 继续执行
+    builder->SetInsertPoint(okBB);
+
+    return nullptr;
+}
+
 int CodeGen::getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName) {
     // 查找 StructDefNode
     auto it = llvmStructToDef.find(structTy);
@@ -1117,6 +1143,7 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
 llvm::Value* CodeGen::codegen(IndexExpr* node) {
     // 获取数组地址
     llvm::Value* arr = nullptr;
+    int64_t arraySize = -1;  // 数组大小，用于越界检查
 
     // 如果 base 是 IdentExpr，直接获取其地址（alloca），不要加载
     if (auto* ident = dynamic_cast<IdentExpr*>(node->base.get())) {
@@ -1299,12 +1326,19 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
                         } else if (baseTypeStr == "bool") {
                             elemType = builder->getInt1Ty();
                         }
+                        // 提取数组大小用于越界检查
+                        arraySize = std::stoi(typeStr.substr(bracketPos + 1, firstBracketClose - bracketPos - 1));
                     }
                 }
             }
         }
         if (!elemType) {
             elemType = builder->getInt32Ty();  // 默认 int32
+        }
+
+        // 越界检查
+        if (arraySize > 0) {
+            createBoundsCheck(idx, arraySize, "arr.bounds");
         }
 
         // 使用字节偏移计算
