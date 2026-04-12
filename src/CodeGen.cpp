@@ -15,7 +15,12 @@ CodeGen::~CodeGen() = default;
 std::unique_ptr<llvm::Module> CodeGen::codegen(ProgramNode* program) {
     // 生成 string 类型定义
     // { i8*, i32 } - { data pointer, length }
-    llvm::StructType::create(*context, "string");
+    llvm::StructType* stringTy = llvm::StructType::create(*context, "string");
+    std::vector<llvm::Type*> stringFields = {
+        llvm::PointerType::get(builder->getInt8Ty(), 0),
+        builder->getInt32Ty()
+    };
+    stringTy->setBody(stringFields);
 
     // 声明运行时函数
     declareRuntimeFunctions();
@@ -1044,6 +1049,31 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
     if (!value) {
         error("AssignExpr: failed to codegen value");
         return nullptr;
+    }
+
+    // 检查是否是字符串类型，进行浅拷贝
+    if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(destPtr)) {
+        if (alloca->getAllocatedType()->isStructTy()) {
+            llvm::StructType* structTy = static_cast<llvm::StructType*>(alloca->getAllocatedType());
+            if (structTy->getName() == "string") {
+                // 字符串赋值：浅拷贝 {指针, 长度}
+                // 获取源字符串的 data 和 len
+                llvm::PointerType* int8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+                llvm::Value* srcDataPtr = builder->CreateStructGEP(structTy, value, 0, "src.data.ptr");
+                llvm::Value* srcData = builder->CreateLoad(int8PtrTy, srcDataPtr, "src.data");
+                llvm::Value* srcLenPtr = builder->CreateStructGEP(structTy, value, 1, "src.len.ptr");
+                llvm::Value* srcLen = builder->CreateLoad(builder->getInt32Ty(), srcLenPtr, "src.len");
+
+                // 获取目标字符串的 data 和 len 指针
+                llvm::Value* dstDataPtr = builder->CreateStructGEP(structTy, destPtr, 0, "dst.data.ptr");
+                llvm::Value* dstLenPtr = builder->CreateStructGEP(structTy, destPtr, 1, "dst.len.ptr");
+
+                // 存储
+                builder->CreateStore(srcData, dstDataPtr);
+                builder->CreateStore(srcLen, dstLenPtr);
+                return value;
+            }
+        }
     }
 
     builder->CreateStore(value, destPtr);
