@@ -87,6 +87,21 @@ void CodeGen::declareRuntimeFunctions() {
     llvm::FunctionType* abortType = llvm::FunctionType::get(
         builder->getVoidTy(), false);
     module->getOrInsertFunction("abort", abortType);
+
+    // stack_depth 全局变量
+    llvm::Type* stackDepthType = builder->getInt32Ty();
+    llvm::GlobalVariable* stackDepth = new llvm::GlobalVariable(
+        *module, stackDepthType, false, llvm::GlobalValue::ExternalLinkage,
+        builder->getInt32(0), "stack_depth");
+    stackDepth->setDSOLocal(true);
+
+    // stack_limit 常量
+    llvm::Constant* stackLimit = llvm::ConstantInt::get(builder->getInt32Ty(), 1024);
+    module->getOrInsertGlobal("stack_limit", stackDepthType);
+    llvm::GlobalVariable* stackLimitVar = module->getNamedGlobal("stack_limit");
+    if (stackLimitVar) {
+        stackLimitVar->setInitializer(stackLimit);
+    }
 }
 
 llvm::Type* CodeGen::getInt32Type() { return builder->getInt32Ty(); }

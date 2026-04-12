@@ -62,6 +62,9 @@ private:
     // 赋值左侧标记
     bool leftSide = false;
 
+    // 栈深度跟踪
+    bool isRecursiveFunction = false;
+
     // 运行时库声明
     void declareRuntimeFunctions();
 
