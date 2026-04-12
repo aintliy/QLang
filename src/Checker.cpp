@@ -35,12 +35,6 @@ void Checker::pass1_collectDefinitions(ASTNode* node) {
                 error(0, 0, "semantic error: duplicate struct definition '" + structDef->name + "'");
             }
         } else if (auto* funcDef = dynamic_cast<FuncDefNode*>(decl.get())) {
-            // Check if return type is a struct - not supported yet
-            if (isStructType(funcDef->returnType)) {
-                error(0, 0, "semantic error: function '" + funcDef->name +
-                          "' returns struct type '" + funcDef->returnType +
-                          "', which is not yet supported");
-            }
             FuncInfo info;
             info.returnType = funcDef->returnType;
             info.name = funcDef->name;
