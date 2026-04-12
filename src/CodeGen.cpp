@@ -78,6 +78,21 @@ void CodeGen::declareRuntimeFunctions() {
         builder->getVoidTy(), llvm::ArrayRef<llvm::Type*>(stringPtrTy), false);
     module->getOrInsertFunction("println_string", void_string);
 
+    // print_* 函数声明 (无换行)
+    module->getOrInsertFunction("print_int", void_i32);
+    module->getOrInsertFunction("print_float64", void_float64);
+    module->getOrInsertFunction("print_bool", void_bool);
+    module->getOrInsertFunction("print_string", void_string);
+
+    // read_* 函数声明
+    llvm::FunctionType* i32_void = llvm::FunctionType::get(
+        builder->getInt32Ty(), false);
+    module->getOrInsertFunction("read_int", i32_void);
+
+    llvm::FunctionType* float64_void = llvm::FunctionType::get(
+        builder->getDoubleTy(), false);
+    module->getOrInsertFunction("read_float64", float64_void);
+
     // memcmp 声明
     // i32 @memcmp(i8*, i8*, i64)
     llvm::PointerType* int8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
