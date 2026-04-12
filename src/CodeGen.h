@@ -72,6 +72,8 @@ private:
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* func, const std::string& name, llvm::Type* type);
     // 数组越界检查
     void createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::string& name);
+    // 除零检查
+    void createDivZeroCheck(llvm::Value* divisor);
     int getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName);
     llvm::Value* codegen(ASTNode* node);
 

@@ -141,6 +141,26 @@ void CodeGen::createBoundsCheck(llvm::Value* idx, int64_t arraySize, const std::
     builder->SetInsertPoint(okBB);
 }
 
+void CodeGen::createDivZeroCheck(llvm::Value* divisor) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "divzero.ok", func);
+    llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "divzero.error", func);
+
+    // 检查 divisor == 0
+    llvm::Value* cmpZero = builder->CreateICmpEQ(divisor, builder->getInt32(0), "cmp.zero");
+
+    builder->CreateCondBr(cmpZero, errorBB, okBB);
+
+    // errorBB: 调用 abort
+    builder->SetInsertPoint(errorBB);
+    llvm::Function* abortFunc = module->getFunction("abort");
+    builder->CreateCall(abortFunc);
+    builder->CreateUnreachable();
+
+    // okBB: 继续执行
+    builder->SetInsertPoint(okBB);
+}
+
 int CodeGen::getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName) {
     // 查找 StructDefNode
     auto it = llvmStructToDef.find(structTy);
@@ -888,10 +908,18 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
         if (left->getType()->isIntegerTy(32)) return builder->CreateMul(left, right, "mul.tmp");
         else if (left->getType()->isDoubleTy()) return builder->CreateFMul(left, right, "mul.tmp");
     } else if (node->op == "/") {
-        if (left->getType()->isIntegerTy(32)) return builder->CreateSDiv(left, right, "div.tmp");
+        if (left->getType()->isIntegerTy(32)) {
+            // 整数除法需要除零检查
+            createDivZeroCheck(right);
+            return builder->CreateSDiv(left, right, "div.tmp");
+        }
         else if (left->getType()->isDoubleTy()) return builder->CreateFDiv(left, right, "div.tmp");
     } else if (node->op == "%") {
-        if (left->getType()->isIntegerTy(32)) return builder->CreateSRem(left, right, "rem.tmp");
+        if (left->getType()->isIntegerTy(32)) {
+            // 取模需要除零检查
+            createDivZeroCheck(right);
+            return builder->CreateSRem(left, right, "rem.tmp");
+        }
     }
     // 关系运算
     else if (node->op == "<") {
