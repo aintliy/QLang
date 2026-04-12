@@ -30,14 +30,30 @@ private:
     // 符号表：变量名 -> AllocaInst*
     std::map<std::string, llvm::AllocaInst*> namedValues;
 
+    // 变量声明映射：变量名 -> VarDeclNode*
+    std::map<std::string, VarDeclNode*> varDeclNodes;
+
+    // 结构体定义映射：struct name -> StructDefNode*
+    std::map<std::string, StructDefNode*> structDefNodes;
+
+    // LLVM StructType 按名字映射
+    std::map<std::string, llvm::StructType*> structTypes;
+
+    // LLVM StructType 到 StructDefNode* 的映射
+    std::map<llvm::StructType*, StructDefNode*> llvmStructToDef;
+
     // 当前函数
     llvm::Function* currentFunction = nullptr;
+
+    // 赋值左侧标记
+    bool leftSide = false;
 
     // 运行时库声明
     void declareRuntimeFunctions();
 
     // 辅助方法
     llvm::AllocaInst* createEntryBlockAlloca(llvm::Function* func, const std::string& name, llvm::Type* type);
+    int getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName);
     llvm::Value* codegen(ASTNode* node);
 
     // 声明处理

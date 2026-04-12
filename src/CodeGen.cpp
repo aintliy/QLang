@@ -20,6 +20,13 @@ std::unique_ptr<llvm::Module> CodeGen::codegen(ProgramNode* program) {
     // 声明运行时函数
     declareRuntimeFunctions();
 
+    // 第一遍：收集所有结构体定义
+    for (auto& decl : program->declarations) {
+        if (auto* structNode = dynamic_cast<StructDefNode*>(decl.get())) {
+            structDefNodes[structNode->name] = structNode;
+        }
+    }
+
     // 为每个声明生成 IR
     for (auto& decl : program->declarations) {
         codegen(decl.get());
@@ -90,6 +97,23 @@ llvm::AllocaInst* CodeGen::createEntryBlockAlloca(llvm::Function* func, const st
     return tmpBuilder.CreateAlloca(type, nullptr, name);
 }
 
+int CodeGen::getStructFieldIndex(llvm::StructType* structTy, const std::string& fieldName) {
+    // 查找 StructDefNode
+    auto it = llvmStructToDef.find(structTy);
+    if (it == llvmStructToDef.end()) {
+        return -1;
+    }
+
+    StructDefNode* structNode = it->second;
+    // 遍历字段，找到字段名的索引
+    for (size_t i = 0; i < structNode->fields.size(); ++i) {
+        if (structNode->fields[i].second == fieldName) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
+}
+
 llvm::Value* CodeGen::codegen(ASTNode* node) {
     if (auto* n = dynamic_cast<StructDefNode*>(node)) { codegen(n); return nullptr; }
     if (auto* n = dynamic_cast<FuncDefNode*>(node)) return codegen(n);
@@ -146,6 +170,12 @@ llvm::Type* CodeGen::codegen(StructDefNode* node) {
     // 创建结构体类型
     llvm::StructType* structTy = llvm::StructType::create(*context, "struct " + node->name);
     structTy->setBody(fieldTypes);
+
+    // 存储 LLVM StructType 到 StructDefNode 的映射
+    llvmStructToDef[structTy] = node;
+
+    // 存储 struct 类型按名字映射（用于 VarDeclNode 查找）
+    structTypes["struct " + node->name] = structTy;
 
     return structTy;
 }
@@ -300,6 +330,7 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
 
     // 添加到符号表
     namedValues[node->name] = alloca;
+    varDeclNodes[node->name] = node;
     return alloca;
 }
 llvm::Value* CodeGen::codegen(BlockStmt* node) {
@@ -628,6 +659,10 @@ llvm::Value* CodeGen::codegen(IdentExpr* node) {
         error("IdentExpr: undefined variable: " + node->name);
         return nullptr;
     }
+    // 如果是赋值左侧上下文，返回变量的地址（alloca）
+    if (leftSide) {
+        return it->second;
+    }
     return builder->CreateLoad(it->second->getAllocatedType(), it->second, node->name);
 }
 llvm::Value* CodeGen::codegen(BinaryExpr* node) {
@@ -758,7 +793,86 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
     return call;
 }
 llvm::Value* CodeGen::codegen(IndexExpr* node) { return nullptr; }
-llvm::Value* CodeGen::codegen(MemberExpr* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(MemberExpr* node) {
+    // 获取对象基地址
+    llvm::Value* obj = nullptr;
+    llvm::StructType* structTy = nullptr;
+
+    // 如果对象是 IdentExpr，需要特殊处理 leftSide
+    if (auto* ident = dynamic_cast<IdentExpr*>(node->object.get())) {
+        auto it = namedValues.find(ident->name);
+        if (it == namedValues.end()) {
+            error("MemberExpr: undefined variable: " + ident->name);
+            return nullptr;
+        }
+        obj = it->second; // 获取 alloca
+
+        // 查找结构体类型
+        auto varIt = varDeclNodes.find(ident->name);
+        if (varIt != varDeclNodes.end()) {
+            VarDeclNode* varDecl = varIt->second;
+            // 查找 struct 类型
+            auto structIt = structTypes.find(varDecl->type);
+            if (structIt != structTypes.end()) {
+                structTy = structIt->second;
+            }
+        }
+
+        if (!structTy) {
+            error("MemberExpr: could not find struct type for: " + ident->name);
+            return nullptr;
+        }
+    } else {
+        // 其他情况，递归调用 codegen
+        obj = codegen(node->object.get());
+        if (!obj) {
+            error("MemberExpr: failed to codegen object");
+            return nullptr;
+        }
+
+        // 尝试获取结构体类型
+        llvm::Type* objType = obj->getType();
+        if (objType->isPointerTy()) {
+            objType = objType->getScalarType();
+        }
+        if (objType->isStructTy()) {
+            structTy = static_cast<llvm::StructType*>(objType);
+        }
+    }
+
+    if (!structTy) {
+        error("MemberExpr: object must be struct type");
+        return nullptr;
+    }
+
+    // 查找字段索引
+    int fieldIndex = getStructFieldIndex(structTy, node->member);
+    if (fieldIndex < 0) {
+        error("MemberExpr: unknown member: " + node->member);
+        return nullptr;
+    }
+
+    // 获取成员地址
+    llvm::Value* memberPtr;
+    if (obj->getType()->isPointerTy()) {
+        // obj 是指针，直接使用 CreateStructGEP
+        memberPtr = builder->CreateStructGEP(structTy, obj, fieldIndex, "member.ptr");
+    } else {
+        // obj 是值，需要先加载
+        llvm::Type* objType = obj->getType();
+        llvm::Value* objLoad = builder->CreateLoad(objType, obj, "obj.load");
+        memberPtr = builder->CreateStructGEP(structTy, objLoad, fieldIndex, "member.ptr");
+    }
+
+    if (leftSide) {
+        // 赋值左侧，返回地址
+        return memberPtr;
+    } else {
+        // 赋值右侧，加载值
+        llvm::Type* fieldType = structTy->getElementType(fieldIndex);
+        return builder->CreateLoad(fieldType, memberPtr, "member.val");
+    }
+}
 llvm::Value* CodeGen::codegen(CastExpr* node) {
     llvm::Value* operand = codegen(node->operand.get());
     if (!operand) {
@@ -778,27 +892,34 @@ llvm::Value* CodeGen::codegen(CastExpr* node) {
     return nullptr;
 }
 llvm::Value* CodeGen::codegen(AssignExpr* node) {
+    // 赋值目标地址
+    llvm::Value* destPtr = nullptr;
+
     // 对于标识符直接查符号表，获取 alloca
-    llvm::AllocaInst* alloca = nullptr;
     if (auto* ident = dynamic_cast<IdentExpr*>(node->target.get())) {
         auto it = namedValues.find(ident->name);
         if (it != namedValues.end()) {
-            alloca = it->second;
+            destPtr = it->second;
         }
     }
 
     // 其他情况（MemberExpr, IndexExpr）需要通过 codegen 获取地址
-    if (!alloca) {
+    if (!destPtr) {
+        // 设置 leftSide 标记，处理赋值目标
+        bool oldLeftSide = leftSide;
+        leftSide = true;
         llvm::Value* target = codegen(node->target.get());
+        leftSide = oldLeftSide;
+
         if (!target) {
             error("AssignExpr: left side evaluation failed");
             return nullptr;
         }
-        if (!llvm::isa<llvm::AllocaInst>(target)) {
-            error("AssignExpr: left side must be a variable");
+        if (!target->getType()->isPointerTy()) {
+            error("AssignExpr: left side must be a pointer");
             return nullptr;
         }
-        alloca = llvm::cast<llvm::AllocaInst>(target);
+        destPtr = target;
     }
 
     llvm::Value* value = codegen(node->value.get());
@@ -807,7 +928,7 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
         return nullptr;
     }
 
-    builder->CreateStore(value, alloca);
+    builder->CreateStore(value, destPtr);
     return value;
 }
 llvm::Value* CodeGen::codegen(InitListExpr* node) {
