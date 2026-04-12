@@ -253,6 +253,8 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
         // 设置标志表示这是 sret 函数
         currentFunctionIsSret = true;
         currentSretType = structTy;
+        // 存储 sret 类型映射
+        sretTypes[node->name] = structTy;
     }
 
     // 构建函数类型 (非 sret 情况)
@@ -1047,12 +1049,34 @@ llvm::Value* CodeGen::codegen(UnaryExpr* node) {
     return nullptr;
 }
 llvm::Value* CodeGen::codegen(CallExpr* node) {
-    llvm::Function* func = module->getFunction(node->callee);
-    if (!func) {
+    llvm::Function* callee = module->getFunction(node->callee);
+    if (!callee) {
         error("CallExpr: undefined function: " + node->callee);
         return nullptr;
     }
+
+    // 检查是否是 sret 函数（返回 void 但第一个参数是 sret 指针）
+    bool isSret = callee->getReturnType()->isVoidTy() &&
+                   !callee->arg_empty() &&
+                   callee->getArg(0)->getType()->isPointerTy();
+
+    llvm::StructType* sretStructTy = nullptr;
+    if (isSret) {
+        auto it = sretTypes.find(node->callee);
+        if (it != sretTypes.end()) {
+            sretStructTy = it->second;
+        }
+    }
+
     std::vector<llvm::Value*> args;
+
+    if (isSret) {
+        // 为 sret 分配临时空间
+        llvm::AllocaInst* tempRet = createEntryBlockAlloca(
+            currentFunction, "ret.tmp", sretStructTy);
+        args.push_back(tempRet);
+    }
+
     for (auto& argExpr : node->args) {
         llvm::Value* argVal = codegen(argExpr.get());
         if (!argVal) {
@@ -1061,11 +1085,19 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
         }
         args.push_back(argVal);
     }
-    llvm::CallInst* call = builder->CreateCall(func, args);
-    if (!func->getReturnType()->isVoidTy()) {
-        call->setName("call.tmp");
+
+    llvm::CallInst* call = builder->CreateCall(callee, args);
+
+    if (isSret) {
+        // sret 调用返回 void，加载临时空间的值作为结果
+        llvm::Value* result = builder->CreateLoad(sretStructTy, args[0], "ret.val");
+        return result;
+    } else {
+        if (!callee->getReturnType()->isVoidTy()) {
+            call->setName("call.tmp");
+        }
+        return call;
     }
-    return call;
 }
 llvm::Value* CodeGen::codegen(IndexExpr* node) {
     // 获取数组地址

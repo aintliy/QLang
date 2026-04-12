@@ -56,6 +56,9 @@ private:
     llvm::StructType* currentSretType = nullptr;
     llvm::Value* currentSretArg = nullptr;
 
+    // sret 类型映射：函数名 -> 结构体类型
+    std::map<std::string, llvm::StructType*> sretTypes;
+
     // 赋值左侧标记
     bool leftSide = false;
 
