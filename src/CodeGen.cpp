@@ -495,9 +495,27 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     return func;
 }
 llvm::Value* CodeGen::codegen(VarDeclNode* node) {
+    // 全局变量：不在函数内部
     if (!currentFunction) {
-        error("VarDeclNode: no current function");
-        return nullptr;
+        // 确定类型
+        llvm::Type* gType = nullptr;
+        if (node->type == "int32") {
+            gType = builder->getInt32Ty();
+        } else if (node->type == "float64") {
+            gType = builder->getDoubleTy();
+        } else if (node->type == "bool") {
+            gType = builder->getInt1Ty();
+        } else {
+            error("VarDeclNode: unsupported global variable type: " + node->type);
+            return nullptr;
+        }
+        llvm::Constant* initVal = llvm::Constant::getNullValue(gType);
+        auto* gVar = new llvm::GlobalVariable(
+            *module, gType, /*isConstant=*/false,
+            llvm::GlobalValue::InternalLinkage, initVal, node->name);
+        globalVars[node->name] = gVar;
+        varDeclNodes[node->name] = node;
+        return gVar;
     }
 
     // 获取类型
@@ -952,8 +970,8 @@ llvm::Value* CodeGen::codegen(LiteralExpr* node) {
         return llvm::ConstantFP::get(*context, llvm::APFloat(value));
     }
     case TokenKind::STRING_LIT: {
+        // lexeme is already the decoded string content (no surrounding quotes)
         std::string str = node->literal.lexeme;
-        str = str.substr(1, str.size() - 2);
         std::vector<llvm::Constant*> chars;
         for (char c : str) {
             chars.push_back(builder->getInt8(c));
@@ -986,6 +1004,15 @@ llvm::Value* CodeGen::codegen(LiteralExpr* node) {
 llvm::Value* CodeGen::codegen(IdentExpr* node) {
     auto it = namedValues.find(node->name);
     if (it == namedValues.end()) {
+        // 检查全局变量
+        auto git = globalVars.find(node->name);
+        if (git != globalVars.end()) {
+            llvm::GlobalVariable* gVar = git->second;
+            if (leftSide) {
+                return gVar;
+            }
+            return builder->CreateLoad(gVar->getValueType(), gVar, node->name);
+        }
         error("IdentExpr: undefined variable: " + node->name);
         return nullptr;
     }
@@ -1647,6 +1674,12 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
         auto it = namedValues.find(ident->name);
         if (it != namedValues.end()) {
             destPtr = it->second;
+        } else {
+            // 检查全局变量
+            auto git = globalVars.find(ident->name);
+            if (git != globalVars.end()) {
+                destPtr = git->second;
+            }
         }
     }
 

@@ -30,6 +30,9 @@ private:
     // 符号表：变量名 -> AllocaInst*
     std::map<std::string, llvm::AllocaInst*> namedValues;
 
+    // 全局变量表：变量名 -> GlobalVariable*
+    std::map<std::string, llvm::GlobalVariable*> globalVars;
+
     // 变量声明映射：变量名 -> VarDeclNode*
     std::map<std::string, VarDeclNode*> varDeclNodes;
 
