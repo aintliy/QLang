@@ -31,8 +31,8 @@ QLang 运行时库（`libqlang_runtime.a`）是一个静态 C 库，为编译后
 
 | 函数签名 | 说明 |
 |---------|------|
-| `void print_string(qlang_string s)` | 输出字符串，不换行 |
-| `void println_string(qlang_string s)` | 输出字符串并换行 |
+| `void print_string(qlang_string* s)` | 输出字符串，不换行 |
+| `void println_string(qlang_string* s)` | 输出字符串并换行 |
 
 ### 布尔 I/O
 
@@ -47,8 +47,8 @@ QLang 运行时库（`libqlang_runtime.a`）是一个静态 C 库，为编译后
 
 ```c
 typedef struct {
-    char   *ptr;   // 字符串数据指针
-    int32_t len;   // 字符串长度（字节数）
+    const char *data;  // 字符串数据指针
+    int32_t     len;   // 字符串长度（字节数）
 } qlang_string;
 ```
 

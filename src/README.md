@@ -14,7 +14,7 @@ src/
 ├── CodeGen.h / CodeGen.cpp      LLVM IR 代码生成器
 ├── Diagnostics.h / Diagnostics.cpp  错误报告
 └── Driver/
-    └── main.cpp                 编译器入口
+    └── main.cpp                 编译器入口（可执行文件为 `build/src/qlang_driver`）
 ```
 
 ## 编译阶段
@@ -25,7 +25,7 @@ src/
 
 - `TokenKind` 枚举涵盖关键字、标识符、字面量、运算符、分隔符、EOF、ERROR
 - 每个 `Token` 携带 `kind`、`lexeme`、`line`、`col`
-- 支持行注释（`//`）、整数字面量、浮点字面量、字符串字面量（含转义序列）
+- 支持块注释（`{** ... **}`）、整数字面量、浮点字面量、字符串字面量（含转义序列）
 
 ### 2. 语法分析（Parser）
 
@@ -85,4 +85,4 @@ qlang_token
 bash init.sh build
 ```
 
-构建产物位于 `build/` 目录，可执行文件为 `build/src/Driver/qlang`。
+构建产物位于 `build/` 目录，可执行文件为 `build/src/Driver/qlang_driver`。

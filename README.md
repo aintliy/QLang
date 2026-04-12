@@ -4,7 +4,7 @@ QLang 是一门静态类型的编译型语言，编译器以 C++ 实现，后端
 
 ## 特性一览
 
-- 静态类型系统，支持 `int`、`float64`、`bool`、`string`、数组、结构体
+- 静态类型系统，支持 `int32`、`float64`、`bool`、`string`、数组、结构体
 - 完整控制流：`if/else`、`while`、`for`、`switch`
 - 函数定义与递归调用
 - 全局变量
@@ -21,7 +21,6 @@ QLang/
 ├── build/          CMake 构建输出（不纳入版本控制）
 ├── CMakeLists.txt  根 CMake 配置
 ├── init.sh         构建 / 测试 / 运行脚本
-└── qlang-features.json  特性追踪列表
 ```
 
 ## 快速开始
