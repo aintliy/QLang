@@ -733,10 +733,120 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
         if (left->getType()->isIntegerTy(1)) return builder->CreateICmpEQ(left, right, "cmp.tmp");
         else if (left->getType()->isIntegerTy(32)) return builder->CreateICmpEQ(left, right, "cmp.tmp");
         else if (left->getType()->isDoubleTy()) return builder->CreateFCmpOEQ(left, right, "cmp.tmp");
+        // 字符串比较 - 变量是指针，literal是struct值
+        else if (left->getType()->isPointerTy() || left->getType()->isStructTy()) {
+            llvm::StructType* structTy = nullptr;
+            llvm::Value* leftPtr = left;
+            llvm::Value* rightPtr = right;
+
+            if (left->getType()->isPointerTy()) {
+                // For pointer types, check if it's a pointer to string struct
+                structTy = llvm::StructType::getTypeByName(*context, "string");
+            } else if (left->getType()->isStructTy()) {
+                structTy = static_cast<llvm::StructType*>(left->getType());
+            }
+
+            if (structTy && structTy->getName() == "string") {
+                llvm::PointerType* int8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+                // left 和 right 是指向 string struct 的指针，直接使用 CreateStructGEP
+                // 获取 data 和 len
+                llvm::Value* leftDataPtr = builder->CreateStructGEP(structTy, leftPtr, 0, "left.data.ptr");
+                llvm::Value* leftData = builder->CreateLoad(int8PtrTy, leftDataPtr, "left.data");
+                llvm::Value* leftLenPtr = builder->CreateStructGEP(structTy, leftPtr, 1, "left.len.ptr");
+                llvm::Value* leftLen = builder->CreateLoad(builder->getInt32Ty(), leftLenPtr, "left.len");
+
+                llvm::Value* rightDataPtr = builder->CreateStructGEP(structTy, rightPtr, 0, "right.data.ptr");
+                llvm::Value* rightData = builder->CreateLoad(int8PtrTy, rightDataPtr, "right.data");
+                llvm::Value* rightLenPtr = builder->CreateStructGEP(structTy, rightPtr, 1, "right.len.ptr");
+                llvm::Value* rightLen = builder->CreateLoad(builder->getInt32Ty(), rightLenPtr, "right.len");
+
+                // 比较长度
+                llvm::Value* lenEq = builder->CreateICmpEQ(leftLen, rightLen, "len.eq");
+
+                // 如果长度相同，比较数据
+                llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+                llvm::Function* func = currentBB->getParent();
+                llvm::BasicBlock* cmpDataBB = llvm::BasicBlock::Create(*context, "cmp.data", func);
+                llvm::BasicBlock* cmpEndBB = llvm::BasicBlock::Create(*context, "cmp.end", func);
+
+                builder->CreateCondBr(lenEq, cmpDataBB, cmpEndBB);
+
+                builder->SetInsertPoint(cmpDataBB);
+                llvm::Function* memcmpFunc = module->getFunction("memcmp");
+                llvm::Value* leftLen64 = builder->CreateZExt(leftLen, builder->getInt64Ty(), "len.zext");
+                llvm::CallInst* memcmpResult = builder->CreateCall(memcmpFunc, {leftData, rightData, leftLen64}, "memcmp.result");
+                llvm::Value* dataEq = builder->CreateICmpEQ(memcmpResult, builder->getInt32(0), "data.eq");
+                builder->CreateBr(cmpEndBB);
+
+                builder->SetInsertPoint(cmpEndBB);
+                llvm::PHINode* result = builder->CreatePHI(builder->getInt1Ty(), 2, "str.eq");
+                result->addIncoming(builder->getFalse(), currentBB);
+                result->addIncoming(dataEq, cmpDataBB);
+
+                return result;
+            }
+        }
     } else if (node->op == "!=") {
         if (left->getType()->isIntegerTy(1)) return builder->CreateICmpNE(left, right, "cmp.tmp");
         else if (left->getType()->isIntegerTy(32)) return builder->CreateICmpNE(left, right, "cmp.tmp");
         else if (left->getType()->isDoubleTy()) return builder->CreateFCmpONE(left, right, "cmp.tmp");
+        // 字符串比较
+        else if (left->getType()->isPointerTy() || left->getType()->isStructTy()) {
+            llvm::StructType* structTy = nullptr;
+            llvm::Value* leftPtr = left;
+            llvm::Value* rightPtr = right;
+
+            if (left->getType()->isPointerTy()) {
+                // For pointer types, check if it's a pointer to string struct
+                structTy = llvm::StructType::getTypeByName(*context, "string");
+            } else if (left->getType()->isStructTy()) {
+                structTy = static_cast<llvm::StructType*>(left->getType());
+            }
+
+            if (structTy && structTy->getName() == "string") {
+                llvm::PointerType* int8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+                // left 和 right 是指向 string struct 的指针，直接使用 CreateStructGEP
+                // 获取 data 和 len
+                llvm::Value* leftDataPtr = builder->CreateStructGEP(structTy, leftPtr, 0, "left.data.ptr");
+                llvm::Value* leftData = builder->CreateLoad(int8PtrTy, leftDataPtr, "left.data");
+                llvm::Value* leftLenPtr = builder->CreateStructGEP(structTy, leftPtr, 1, "left.len.ptr");
+                llvm::Value* leftLen = builder->CreateLoad(builder->getInt32Ty(), leftLenPtr, "left.len");
+
+                llvm::Value* rightDataPtr = builder->CreateStructGEP(structTy, rightPtr, 0, "right.data.ptr");
+                llvm::Value* rightData = builder->CreateLoad(int8PtrTy, rightDataPtr, "right.data");
+                llvm::Value* rightLenPtr = builder->CreateStructGEP(structTy, rightPtr, 1, "right.len.ptr");
+                llvm::Value* rightLen = builder->CreateLoad(builder->getInt32Ty(), rightLenPtr, "right.len");
+
+                // 比较长度
+                llvm::Value* lenEq = builder->CreateICmpEQ(leftLen, rightLen, "len.eq");
+
+                // 如果长度相同，比较数据
+                llvm::BasicBlock* currentBB = builder->GetInsertBlock();
+                llvm::Function* func = currentBB->getParent();
+                llvm::BasicBlock* cmpDataBB = llvm::BasicBlock::Create(*context, "cmp.data", func);
+                llvm::BasicBlock* cmpEndBB = llvm::BasicBlock::Create(*context, "cmp.end", func);
+
+                builder->CreateCondBr(lenEq, cmpDataBB, cmpEndBB);
+
+                // In cmp.data, compute the "not equal" result
+                builder->SetInsertPoint(cmpDataBB);
+                llvm::Function* memcmpFunc = module->getFunction("memcmp");
+                llvm::Value* leftLen64 = builder->CreateZExt(leftLen, builder->getInt64Ty(), "len.zext");
+                llvm::CallInst* memcmpResult = builder->CreateCall(memcmpFunc, {leftData, rightData, leftLen64}, "memcmp.result");
+                llvm::Value* dataEq = builder->CreateICmpEQ(memcmpResult, builder->getInt32(0), "data.eq");
+                // Compute "not equal" as XOR with true
+                llvm::Value* dataNe = builder->CreateXor(dataEq, builder->getTrue(), "data.ne");
+                builder->CreateBr(cmpEndBB);
+
+                // In cmp.end, use PHI to select: true from entry (lengths differ) or data.ne from cmp.data
+                builder->SetInsertPoint(cmpEndBB);
+                llvm::PHINode* result = builder->CreatePHI(builder->getInt1Ty(), 2, "str.ne");
+                result->addIncoming(builder->getTrue(), currentBB);
+                result->addIncoming(dataNe, cmpDataBB);
+
+                return result;
+            }
+        }
     } else if (node->op == "&&") {
         llvm::BasicBlock* entryBB = builder->GetInsertBlock();
         llvm::Function* func = entryBB->getParent();
