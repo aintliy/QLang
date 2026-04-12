@@ -3,3 +3,5 @@
 /docs
 .vscode
 .ll
+!README.md
+*.json
