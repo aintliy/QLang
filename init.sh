@@ -67,14 +67,20 @@ compile_qlang() {
     # Step 1: Lexer + Parser + Sema + Codegen -> IR
     "$BUILD_DIR/src/qlang_driver" "$input" -S -o "$BUILD_DIR/output.ll"
 
-    # Step 2: Compile IR -> object
-    llc "$BUILD_DIR/output.ll" -o "$BUILD_DIR/output.o"
+    # Step 2: Compile IR -> object (use --filetype=obj for relocatable object)
+    llc --filetype=obj "$BUILD_DIR/output.ll" -o "$BUILD_DIR/output.o"
 
     # Step 3: Link
-    if [ "$(uname -s)" = "Windows_NT" ]; then
-        clang "$BUILD_DIR/output.o" "$BUILD_DIR/qlang_runtime.obj" -o "$output"
+    # Find clang (prefer system clang, fall back to LLVM's clang)
+    if command -v clang &> /dev/null; then
+        local CLANG="clang"
     else
-        clang "$BUILD_DIR/output.o" "$BUILD_DIR/qlang_runtime.o" -o "$output"
+        local CLANG="$LLVM_BIN/clang"
+    fi
+    if [ "$(uname -s)" = "Windows_NT" ]; then
+        $CLANG -no-pie "$BUILD_DIR/output.o" "$BUILD_DIR/runtime/libqlang_runtime.a" -o "$output"
+    else
+        $CLANG -no-pie "$BUILD_DIR/output.o" "$BUILD_DIR/runtime/libqlang_runtime.a" -o "$output"
     fi
 
     log_info "Output written to: $output"
@@ -113,7 +119,12 @@ case "${1:-build}" in
         fi
         check_llvm
         build_cmake
-        compile_qlang "$2.ql" "$2"
+        # 支持 test/e2e/FILE.ql 或直接 FILE.ql（优先 test/e2e/）
+        if [ -f "test/e2e/$2.ql" ]; then
+            compile_qlang "test/e2e/$2.ql" "$2"
+        else
+            compile_qlang "$2.ql" "$2"
+        fi
         ;;
     *)
         echo "Usage: $0 {build|test|clean|run FILE}"
