@@ -41,10 +41,61 @@ std::unique_ptr<ProgramNode> Parser::parseProgram() {
 
 std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
     if (check(TokenKind::KEYWORD_STRUCT)) {
-        return parseStructDef();
+        // Look ahead to distinguish between:
+        // - struct IDENT { ... }  (struct definition)
+        // - struct IDENT name ... (type annotation for function/variable)
+        advance(); // consume 'struct'
+        Token structName = consume(TokenKind::IDENT, "expected struct name");
+
+        // Check if this is a struct definition (followed by '{')
+        if (check(TokenKind::LBRACE)) {
+            // It's a struct definition - use parseStructDef with pre-consumed name
+            return parseStructDef(&structName);
+        }
+
+        // It's a type annotation (struct IDENT as return type or variable type)
+        // Build the type string and continue with normal parsing
+        std::string type = "struct " + structName.lexeme;
+
+        // Check for array suffixes
+        while (match(TokenKind::LBRACKET)) {
+            Token size = consume(TokenKind::INT_LIT, "expected array size");
+            consume(TokenKind::RBRACKET, "expected ']'");
+            type += "[" + size.lexeme + "]";
+        }
+
+        std::string name = consume(TokenKind::IDENT, "expected identifier").lexeme;
+
+        if (match(TokenKind::LPAREN)) {
+            // Function definition
+            auto node = std::make_unique<FuncDefNode>();
+            node->returnType = type;
+            node->name = name;
+            // Parse params
+            if (!check(TokenKind::RPAREN)) {
+                do {
+                    std::string paramType = parseType();
+                    std::string paramName = consume(TokenKind::IDENT, "expected parameter name").lexeme;
+                    node->params.emplace_back(paramType, paramName);
+                } while (match(TokenKind::COMMA));
+            }
+            consume(TokenKind::RPAREN, "expected ')'");
+            node->body = parseBlock();
+            return node;
+        } else {
+            // Variable declaration
+            auto node = std::make_unique<VarDeclNode>();
+            node->type = type;
+            node->name = name;
+            if (match(TokenKind::ASSIGN)) {
+                node->initializer = parseInitializer();
+            }
+            consume(TokenKind::SEMICOLON, "expected ';'");
+            return node;
+        }
     }
 
-    // Function or variable - parse type first
+    // Function or variable - parse type first (non-struct types: int32, float64, etc.)
     std::string type = parseType();
     std::string name = consume(TokenKind::IDENT, "expected identifier").lexeme;
 
@@ -77,9 +128,14 @@ std::unique_ptr<ASTNode> Parser::parseTopLevelDecl() {
     }
 }
 
-std::unique_ptr<StructDefNode> Parser::parseStructDef() {
-    consume(TokenKind::KEYWORD_STRUCT, "expected 'struct'");
-    Token name = consume(TokenKind::IDENT, "expected struct name");
+std::unique_ptr<StructDefNode> Parser::parseStructDef(Token* preConsumedName) {
+    Token name;
+    if (preConsumedName) {
+        name = *preConsumedName;
+    } else {
+        consume(TokenKind::KEYWORD_STRUCT, "expected 'struct'");
+        name = consume(TokenKind::IDENT, "expected struct name");
+    }
     consume(TokenKind::LBRACE, "expected '{'");
 
     auto node = std::make_unique<StructDefNode>();
@@ -140,6 +196,10 @@ std::string Parser::parseType() {
             type += "[" + size.lexeme + "]";
         }
         return type;
+    } else if (check(TokenKind::IDENT)) {
+        // Plain IDENT - treat as struct type name
+        Token identToken = consume(TokenKind::IDENT, "expected type");
+        return identToken.lexeme;
     } else {
         error(current.line, current.col, "expected type");
         return "";

@@ -296,26 +296,49 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
     // 检查是否是数组类型 (e.g., "int32[5]")
     size_t bracketPos = node->type.find('[');
     if (bracketPos != std::string::npos) {
-        // 解析数组类型
-        std::string baseType = node->type.substr(0, bracketPos);
-        size_t rightBracket = node->type.find(']', bracketPos);
-        std::string sizeStr = node->type.substr(bracketPos + 1, rightBracket - bracketPos - 1);
-        int64_t arraySize = std::stoll(sizeStr);
+        // 解析数组类型，支持多维数组如 int32[2][3]
+        std::string baseTypeStr = node->type.substr(0, bracketPos);
+        size_t firstBracketClose = node->type.find(']');
+        bool isMultiDim = node->type.find('[', firstBracketClose + 1) != std::string::npos;
 
-        // 获取元素类型
-        llvm::Type* elemType;
-        if (baseType == "int32") {
-            elemType = builder->getInt32Ty();
-        } else if (baseType == "float64") {
-            elemType = builder->getDoubleTy();
-        } else if (baseType == "bool") {
-            elemType = builder->getInt1Ty();
+        // 获取基础类型
+        llvm::Type* baseType = nullptr;
+        if (baseTypeStr == "int32") {
+            baseType = builder->getInt32Ty();
+        } else if (baseTypeStr == "float64") {
+            baseType = builder->getDoubleTy();
+        } else if (baseTypeStr == "bool") {
+            baseType = builder->getInt1Ty();
         } else {
-            error("VarDeclNode: unsupported array element type: " + baseType);
+            error("VarDeclNode: unsupported array element type: " + baseTypeStr);
             return nullptr;
         }
 
-        varType = llvm::ArrayType::get(elemType, arraySize);
+        if (isMultiDim) {
+            // 多维数组：解析所有维度
+            std::string dims = node->type.substr(bracketPos);
+            std::vector<unsigned> sizes;
+            size_t pos = 1; // skip first '['
+            while (pos < dims.size()) {
+                size_t comma = dims.find(',', pos);
+                size_t rbracket = dims.find(']', pos);
+                std::string dim = dims.substr(pos, comma < rbracket ? comma - pos : rbracket - pos);
+                sizes.push_back(std::stoi(dim));
+                pos = rbracket + 2; // skip ']' and possibly ','
+            }
+
+            // 从内到外构建数组类型: int32[2][3] -> [2 x [3 x i32]]
+            llvm::Type* elemType = baseType;
+            for (int i = sizes.size() - 1; i >= 0; --i) {
+                elemType = llvm::ArrayType::get(elemType, sizes[i]);
+            }
+            varType = elemType;
+        } else {
+            // 简单数组 int32[5]
+            std::string sizeStr = node->type.substr(bracketPos + 1, firstBracketClose - bracketPos - 1);
+            int64_t arraySize = std::stoll(sizeStr);
+            varType = llvm::ArrayType::get(baseType, arraySize);
+        }
     } else if (node->type == "int32") {
         varType = builder->getInt32Ty();
     } else if (node->type == "float64") {
@@ -943,6 +966,79 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
             return nullptr;
         }
         arr = it->second;  // 获取 alloca (指针)
+    } else if (auto* innerIndex = dynamic_cast<IndexExpr*>(node->base.get())) {
+        // 多维数组下标如 matrix[0][1]
+        // base 是 IndexExpr (matrix[0])，需要特殊处理
+        // 对于多维数组，matrix[0] 返回的是指向一行的指针 [3 x i32]*
+
+        // 获取下标
+        llvm::Value* idx = codegen(node->index.get());
+        if (!idx) {
+            error("IndexExpr: failed to codegen index");
+            return nullptr;
+        }
+
+        // 确保下标是 i32
+        if (idx->getType()->isIntegerTy(1)) {
+            idx = builder->CreateZExt(idx, builder->getInt32Ty(), "idx.zext");
+        }
+
+        // 调用 codegen 处理 innerIndex (matrix[0])
+        // 设置 leftSide=false 以获取加载的值（行数组），而不是指针
+        bool oldLeftSide = leftSide;
+        leftSide = false;
+        llvm::Value* innerResult = codegen(innerIndex);
+        leftSide = oldLeftSide;
+
+        if (!innerResult) {
+            error("IndexExpr: failed to codegen inner index");
+            return nullptr;
+        }
+
+        llvm::Type* innerType = innerResult->getType();
+
+        // innerResult 应该是加载的行数组 [3 x i32]
+        if (innerType->isArrayTy()) {
+            llvm::ArrayType* rowArrayTy = llvm::cast<llvm::ArrayType>(innerType);
+            llvm::Type* elemTy = rowArrayTy->getElementType();
+
+            // 将 row 存到临时变量（使用 i8* 类型以便字节偏移计算）
+            llvm::Type* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+            llvm::AllocaInst* temp = createEntryBlockAlloca(currentFunction, "row.tmp", llvm::ArrayType::get(builder->getInt8Ty(), rowArrayTy->getNumElements() * (elemTy->isIntegerTy(32) ? 4 : (elemTy->isDoubleTy() ? 8 : 4))));
+            llvm::Value* rowAsI8 = builder->CreateBitCast(temp, i8PtrTy, "row.i8");
+
+            // 创建行大小的值（用于回填）
+            int64_t rowSize = rowArrayTy->getNumElements() * (elemTy->isIntegerTy(32) ? 4 : (elemTy->isDoubleTy() ? 8 : 4));
+
+            // 使用 memset 存储整行（简化版：逐字节存储）
+            // 实际上，我们使用 bitcast 后直接用 GEP
+            // 先将 innerResult 存储到一个 i8* 临时
+            llvm::AllocaInst* i8Temp = createEntryBlockAlloca(currentFunction, "row.i8.tmp", llvm::ArrayType::get(builder->getInt8Ty(), rowSize));
+            builder->CreateStore(innerResult, i8Temp);
+            llvm::Value* i8TempPtr = builder->CreateBitCast(i8Temp, i8PtrTy, "row.i8.cast");
+
+            // 计算字节偏移：每列 elemSize 字节
+            int64_t elemSize = elemTy->isIntegerTy(32) ? 4 : (elemTy->isDoubleTy() ? 8 : 4);
+            llvm::Value* elemSizeVal = builder->getInt32(elemSize);
+            llvm::Value* byteOffset = builder->CreateMul(idx, elemSizeVal, "elem.offset");
+
+            // 使用 CreatePtrAdd 计算元素地址
+            llvm::Value* elemPtr = builder->CreatePtrAdd(i8TempPtr, byteOffset, "elem.ptr");
+
+            if (leftSide) {
+                // 返回元素指针用于赋值
+                llvm::PointerType* elemPtrTy = llvm::PointerType::get(elemTy, 0);
+                return builder->CreateBitCast(elemPtr, elemPtrTy, "elem.ptr.cast");
+            } else {
+                // 返回元素值
+                llvm::PointerType* elemPtrTy = llvm::PointerType::get(elemTy, 0);
+                llvm::Value* elemPtrCast = builder->CreateBitCast(elemPtr, elemPtrTy, "elem.ptr.cast");
+                return builder->CreateLoad(elemTy, elemPtrCast, "elem.val");
+            }
+        }
+
+        error("IndexExpr: inner result must be array type for multi-dimensional indexing");
+        return nullptr;
     } else {
         arr = codegen(node->base.get());
         if (!arr) {
@@ -971,19 +1067,79 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
 
     if (arrType->isPointerTy()) {
         // 指针类型：尝试从 base 的 IdentExpr 获取类型信息
-        // 或者使用字节偏移方式
+        // 对于多维数组，需要特殊处理
         if (auto* ident = dynamic_cast<IdentExpr*>(node->base.get())) {
             auto varIt = varDeclNodes.find(ident->name);
             if (varIt != varDeclNodes.end()) {
                 VarDeclNode* varDecl = varIt->second;
                 std::string typeStr = varDecl->type;
-                // 解析类型字符串获取元素类型
-                if (typeStr.substr(0, 5) == "int32") {
-                    elemType = builder->getInt32Ty();
-                } else if (typeStr.substr(0, 7) == "float64") {
-                    elemType = builder->getDoubleTy();
-                } else if (typeStr.substr(0, 4) == "bool") {
-                    elemType = builder->getInt1Ty();
+                // 检查是否是数组类型
+                size_t bracketPos = typeStr.find('[');
+                if (bracketPos != std::string::npos) {
+                    size_t firstBracketClose = typeStr.find(']');
+                    bool isMultiDim = typeStr.find('[', firstBracketClose + 1) != std::string::npos;
+
+                    std::string baseTypeStr = typeStr.substr(0, bracketPos);
+                    llvm::Type* baseType = nullptr;
+                    if (baseTypeStr == "int32") {
+                        baseType = builder->getInt32Ty();
+                    } else if (baseTypeStr == "float64") {
+                        baseType = builder->getDoubleTy();
+                    } else if (baseTypeStr == "bool") {
+                        baseType = builder->getInt1Ty();
+                    }
+
+                    if (isMultiDim) {
+                        // 多维数组 int32[2][3]：解析维度
+                        std::string dims = typeStr.substr(bracketPos);
+                        std::vector<unsigned> sizes;
+                        size_t pos = 1;
+                        while (pos < dims.size()) {
+                            size_t comma = dims.find(',', pos);
+                            size_t rbracket = dims.find(']', pos);
+                            std::string dim = dims.substr(pos, comma < rbracket ? comma - pos : rbracket - pos);
+                            sizes.push_back(std::stoi(dim));
+                            pos = rbracket + 2;
+                        }
+
+                        // 计算行大小的字节数
+                        llvm::Type* rowType = nullptr;
+                        if (sizes.size() >= 2) {
+                            llvm::Type* t = baseType;
+                            for (size_t i = 1; i < sizes.size(); ++i) {
+                                t = llvm::ArrayType::get(t, sizes[i]);
+                            }
+                            rowType = t;
+                        } else {
+                            rowType = baseType;
+                        }
+                        int64_t rowSize = sizes[1] * (baseType->isIntegerTy(32) ? 4 : (baseType->isDoubleTy() ? 8 : 4));
+                        llvm::Value* rowSizeVal = builder->getInt32(rowSize);
+                        llvm::Value* byteOffset = builder->CreateMul(idx, rowSizeVal, "row.offset");
+
+                        // 使用 i8* 字节偏移计算
+                        llvm::Type* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+                        llvm::Value* arrAsI8 = builder->CreateBitCast(arr, i8PtrTy, "arr.i8");
+                        llvm::Value* rowPtrI8 = builder->CreateGEP(builder->getInt8Ty(), arrAsI8, byteOffset, "row.ptr.i8");
+                        llvm::PointerType* rowPtrTy = llvm::PointerType::get(rowType, 0);
+                        llvm::Value* rowPtr = builder->CreateBitCast(rowPtrI8, rowPtrTy, "row.ptr");
+
+                        if (leftSide) {
+                            return rowPtr;
+                        } else {
+                            // 加载整行
+                            return builder->CreateLoad(rowType, rowPtr, "row.val");
+                        }
+                    } else {
+                        // 简单数组 int32[5]
+                        if (baseTypeStr == "int32") {
+                            elemType = builder->getInt32Ty();
+                        } else if (baseTypeStr == "float64") {
+                            elemType = builder->getDoubleTy();
+                        } else if (baseTypeStr == "bool") {
+                            elemType = builder->getInt1Ty();
+                        }
+                    }
                 }
             }
         }

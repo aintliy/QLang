@@ -42,6 +42,12 @@ private:
     // LLVM StructType 到 StructDefNode* 的映射
     std::map<llvm::StructType*, StructDefNode*> llvmStructToDef;
 
+    // 函数参数类型映射：参数名 -> StructType* (用于结构体参数)
+    std::map<std::string, llvm::StructType*> paramStructTypes;
+
+    // 函数参数类型映射：函数名 -> 参数索引 -> 是否为结构体指针
+    std::map<std::string, std::vector<bool>> funcParamIsStruct;
+
     // 当前函数
     llvm::Function* currentFunction = nullptr;
 

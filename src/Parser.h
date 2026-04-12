@@ -22,7 +22,7 @@ private:
     std::unique_ptr<ASTNode> parseTopLevelDecl();
 
     // Declarations
-    std::unique_ptr<StructDefNode> parseStructDef();
+    std::unique_ptr<StructDefNode> parseStructDef(Token* preConsumedName = nullptr);
     std::unique_ptr<FuncDefNode> parseFuncDef();
     std::unique_ptr<VarDeclNode> parseVarDecl();
 
