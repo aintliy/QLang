@@ -88,20 +88,20 @@ void CodeGen::declareRuntimeFunctions() {
         builder->getVoidTy(), false);
     module->getOrInsertFunction("abort", abortType);
 
-    // stack_depth 全局变量
+    // Runtime stack depth tracking for overflow detection
+    // @stack_depth: current stack depth counter
+    // @stack_limit: maximum allowed stack depth (1024)
     llvm::Type* stackDepthType = builder->getInt32Ty();
     llvm::GlobalVariable* stackDepth = new llvm::GlobalVariable(
         *module, stackDepthType, false, llvm::GlobalValue::ExternalLinkage,
         builder->getInt32(0), "stack_depth");
     stackDepth->setDSOLocal(true);
 
-    // stack_limit 常量
-    llvm::Constant* stackLimit = llvm::ConstantInt::get(builder->getInt32Ty(), 1024);
-    module->getOrInsertGlobal("stack_limit", stackDepthType);
-    llvm::GlobalVariable* stackLimitVar = module->getNamedGlobal("stack_limit");
-    if (stackLimitVar) {
-        stackLimitVar->setInitializer(stackLimit);
-    }
+    // Stack depth limit = 1024 (matches compile-time nesting depth limit)
+    llvm::GlobalVariable* stackLimit = new llvm::GlobalVariable(
+        *module, builder->getInt32Ty(), false, llvm::GlobalValue::ExternalLinkage,
+        builder->getInt32(1024), "stack_limit");
+    stackLimit->setDSOLocal(true);
 }
 
 llvm::Type* CodeGen::getInt32Type() { return builder->getInt32Ty(); }
