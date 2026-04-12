@@ -25,10 +25,13 @@ std::unique_ptr<llvm::Module> CodeGen::codegen(ProgramNode* program) {
     // 声明运行时函数
     declareRuntimeFunctions();
 
-    // 第一遍：收集所有结构体定义
+    // 第一遍：收集所有结构体定义和函数调用关系
     for (auto& decl : program->declarations) {
         if (auto* structNode = dynamic_cast<StructDefNode*>(decl.get())) {
             structDefNodes[structNode->name] = structNode;
+        } else if (auto* funcNode = dynamic_cast<FuncDefNode*>(decl.get())) {
+            // 收集函数调用
+            collectFunctionCalls(funcNode);
         }
     }
 
@@ -370,6 +373,43 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     namedValues.clear();
     llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", func);
     builder->SetInsertPoint(entry);
+
+    // 检查是否是递归函数
+    bool isRecursive = isFunctionRecursive(node->name);
+
+    // 如果是递归函数，插入栈深度检查
+    if (isRecursive) {
+        // 获取 @stack_depth 和 @stack_limit
+        llvm::GlobalVariable* stackDepth = module->getNamedGlobal("stack_depth");
+        llvm::GlobalVariable* stackLimit = module->getNamedGlobal("stack_limit");
+
+        // %depth = load i32, i32* @stack_depth
+        llvm::Value* depth = builder->CreateLoad(builder->getInt32Ty(), stackDepth, "depth");
+
+        // %cmp.depth = icmp sge i32 %depth, @stack_limit
+        llvm::Value* limit = builder->CreateLoad(builder->getInt32Ty(), stackLimit, "limit");
+        llvm::Value* cmpDepth = builder->CreateICmpSGE(depth, limit, "cmp.depth");
+
+        llvm::Function* func = currentFunction;
+        llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "stack.ok", func);
+        llvm::BasicBlock* overflowBB = llvm::BasicBlock::Create(*context, "stack.overflow", func);
+
+        builder->CreateCondBr(cmpDepth, overflowBB, okBB);
+
+        // stack.overflow: 调用 abort
+        builder->SetInsertPoint(overflowBB);
+        llvm::Function* abortFunc = module->getFunction("abort");
+        builder->CreateCall(abortFunc);
+        builder->CreateUnreachable();
+
+        // stack.ok: 继续，增加计数器
+        builder->SetInsertPoint(okBB);
+        llvm::Value* newDepth = builder->CreateAdd(depth, builder->getInt32(1), "new.depth");
+        builder->CreateStore(newDepth, stackDepth);
+
+        // 设置标志，表示这是递归函数
+        isRecursiveFunction = true;
+    }
 
     // 为参数创建 alloca
     i = 0;
@@ -807,11 +847,32 @@ llvm::Value* CodeGen::codegen(ReturnStmt* node) {
                     builder->getInt1(false)
                 });
             }
+            // 如果是递归函数，返回前递减栈深度
+            if (isRecursiveFunction) {
+                llvm::GlobalVariable* stackDepth = module->getNamedGlobal("stack_depth");
+                llvm::Value* depth = builder->CreateLoad(builder->getInt32Ty(), stackDepth, "depth");
+                llvm::Value* newDepth = builder->CreateSub(depth, builder->getInt32(1), "dec.depth");
+                builder->CreateStore(newDepth, stackDepth);
+            }
             builder->CreateRetVoid();
         } else {
+            // 如果是递归函数，返回前递减栈深度
+            if (isRecursiveFunction) {
+                llvm::GlobalVariable* stackDepth = module->getNamedGlobal("stack_depth");
+                llvm::Value* depth = builder->CreateLoad(builder->getInt32Ty(), stackDepth, "depth");
+                llvm::Value* newDepth = builder->CreateSub(depth, builder->getInt32(1), "dec.depth");
+                builder->CreateStore(newDepth, stackDepth);
+            }
             builder->CreateRet(retVal);
         }
     } else {
+        // 如果是递归函数，返回前递减栈深度
+        if (isRecursiveFunction) {
+            llvm::GlobalVariable* stackDepth = module->getNamedGlobal("stack_depth");
+            llvm::Value* depth = builder->CreateLoad(builder->getInt32Ty(), stackDepth, "depth");
+            llvm::Value* newDepth = builder->CreateSub(depth, builder->getInt32(1), "dec.depth");
+            builder->CreateStore(newDepth, stackDepth);
+        }
         builder->CreateRetVoid();
     }
     return nullptr;
@@ -1638,4 +1699,75 @@ llvm::Value* CodeGen::codegen(InitListExpr* node) {
     }
 
     return result;
+}
+
+void CodeGen::collectFunctionCalls(FuncDefNode* node) {
+    // 遍历函数体，收集所有函数调用
+    std::vector<std::string> calls;
+
+    // 使用递归遍历 AST 收集 CallExpr
+    std::function<void(ASTNode*)> collect = [&](ASTNode* n) {
+        if (auto* call = dynamic_cast<CallExpr*>(n)) {
+            calls.push_back(call->callee);
+        }
+        // 递归遍历所有子节点
+        if (auto* block = dynamic_cast<BlockStmt*>(n)) {
+            for (auto& item : block->items) collect(item.get());
+        } else if (auto* ifStmt = dynamic_cast<IfStmt*>(n)) {
+            collect(ifStmt->condition.get());
+            if (ifStmt->thenBranch) collect(ifStmt->thenBranch.get());
+            if (ifStmt->elseBranch) collect(ifStmt->elseBranch.get());
+        } else if (auto* whileStmt = dynamic_cast<WhileStmt*>(n)) {
+            collect(whileStmt->condition.get());
+            if (whileStmt->body) collect(whileStmt->body.get());
+        } else if (auto* forStmt = dynamic_cast<ForStmt*>(n)) {
+            if (forStmt->init) collect(forStmt->init.get());
+            if (forStmt->cond) collect(forStmt->cond.get());
+            if (forStmt->update) collect(forStmt->update.get());
+            if (forStmt->body) collect(forStmt->body.get());
+        } else if (auto* switchStmt = dynamic_cast<SwitchStmt*>(n)) {
+            collect(switchStmt->expr.get());
+            for (auto& casePair : switchStmt->cases) {
+                collect(casePair.first.get());
+                for (auto& stmt : casePair.second) collect(stmt.get());
+            }
+            for (auto& stmt : switchStmt->defaultBody) collect(stmt.get());
+        } else if (auto* returnStmt = dynamic_cast<ReturnStmt*>(n)) {
+            if (returnStmt->value) collect(returnStmt->value.get());
+        } else if (auto* exprStmt = dynamic_cast<ExprStmt*>(n)) {
+            collect(exprStmt->expr.get());
+        } else if (auto* binary = dynamic_cast<BinaryExpr*>(n)) {
+            collect(binary->left.get());
+            collect(binary->right.get());
+        } else if (auto* unary = dynamic_cast<UnaryExpr*>(n)) {
+            collect(unary->operand.get());
+        } else if (auto* assign = dynamic_cast<AssignExpr*>(n)) {
+            collect(assign->target.get());
+            collect(assign->value.get());
+        } else if (auto* index = dynamic_cast<IndexExpr*>(n)) {
+            collect(index->base.get());
+            collect(index->index.get());
+        } else if (auto* member = dynamic_cast<MemberExpr*>(n)) {
+            collect(member->object.get());
+        } else if (auto* callExpr = dynamic_cast<CallExpr*>(n)) {
+            calls.push_back(callExpr->callee);
+            for (auto& arg : callExpr->args) collect(arg.get());
+        } else if (auto* cast = dynamic_cast<CastExpr*>(n)) {
+            collect(cast->operand.get());
+        } else if (auto* initList = dynamic_cast<InitListExpr*>(n)) {
+            for (auto& elem : initList->elements) collect(elem.get());
+        }
+    };
+
+    if (node->body) collect(node->body.get());
+    functionCalls[node->name] = calls;
+}
+
+bool CodeGen::isFunctionRecursive(const std::string& funcName) {
+    auto it = functionCalls.find(funcName);
+    if (it == functionCalls.end()) return false;
+    for (const auto& callee : it->second) {
+        if (callee == funcName) return true;
+    }
+    return false;
 }

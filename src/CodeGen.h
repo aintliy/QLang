@@ -65,6 +65,13 @@ private:
     // 栈深度跟踪
     bool isRecursiveFunction = false;
 
+    // 递归检测：收集所有函数调用
+    std::map<std::string, std::vector<std::string>> functionCalls;
+
+    // 辅助方法
+    void collectFunctionCalls(FuncDefNode* node);
+    bool isFunctionRecursive(const std::string& funcName);
+
     // 运行时库声明
     void declareRuntimeFunctions();
 
