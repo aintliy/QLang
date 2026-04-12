@@ -23,8 +23,8 @@ bool checkerShouldFail(const std::string& src, const std::string& expectedError)
     if (pid == 0) {
         // Child process - run checker
         auto program = parse(src);
-        Checker checker(std::move(program));
-        checker.check();
+        Checker checker;
+        checker.check(program.get());
         exit(0);  // Success - no error detected (but we expected one)
     } else {
         // Parent process - wait and check result
@@ -164,8 +164,8 @@ void main() {}
 )";
     // This should not fail
     auto program = parse(src);
-    Checker checker(std::move(program));
-    checker.check();
+    Checker checker;
+    checker.check(program.get());
     std::cout << "PASS: testValidInt32Assignment" << std::endl;
 }
 
@@ -182,8 +182,8 @@ void main() {
 }
 )";
     auto program = parse(src);
-    Checker checker(std::move(program));
-    checker.check();
+    Checker checker;
+    checker.check(program.get());
     std::cout << "PASS: testValidInt32Switch" << std::endl;
 }
 
