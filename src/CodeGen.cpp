@@ -371,6 +371,7 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
     // 创建入口 block
     currentFunction = func;
     namedValues.clear();
+    isRecursiveFunction = false;
     llvm::BasicBlock* entry = llvm::BasicBlock::Create(*context, "entry", func);
     builder->SetInsertPoint(entry);
 
