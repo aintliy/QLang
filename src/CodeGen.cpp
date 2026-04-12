@@ -287,7 +287,31 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
 
     // 获取类型
     llvm::Type* varType;
-    if (node->type == "int32") {
+
+    // 检查是否是数组类型 (e.g., "int32[5]")
+    size_t bracketPos = node->type.find('[');
+    if (bracketPos != std::string::npos) {
+        // 解析数组类型
+        std::string baseType = node->type.substr(0, bracketPos);
+        size_t rightBracket = node->type.find(']', bracketPos);
+        std::string sizeStr = node->type.substr(bracketPos + 1, rightBracket - bracketPos - 1);
+        int64_t arraySize = std::stoll(sizeStr);
+
+        // 获取元素类型
+        llvm::Type* elemType;
+        if (baseType == "int32") {
+            elemType = builder->getInt32Ty();
+        } else if (baseType == "float64") {
+            elemType = builder->getDoubleTy();
+        } else if (baseType == "bool") {
+            elemType = builder->getInt1Ty();
+        } else {
+            error("VarDeclNode: unsupported array element type: " + baseType);
+            return nullptr;
+        }
+
+        varType = llvm::ArrayType::get(elemType, arraySize);
+    } else if (node->type == "int32") {
         varType = builder->getInt32Ty();
     } else if (node->type == "float64") {
         varType = builder->getDoubleTy();
@@ -792,7 +816,101 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
     }
     return call;
 }
-llvm::Value* CodeGen::codegen(IndexExpr* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(IndexExpr* node) {
+    // 获取数组地址
+    llvm::Value* arr = nullptr;
+
+    // 如果 base 是 IdentExpr，直接获取其地址（alloca），不要加载
+    if (auto* ident = dynamic_cast<IdentExpr*>(node->base.get())) {
+        auto it = namedValues.find(ident->name);
+        if (it == namedValues.end()) {
+            error("IndexExpr: undefined variable: " + ident->name);
+            return nullptr;
+        }
+        arr = it->second;  // 获取 alloca (指针)
+    } else {
+        arr = codegen(node->base.get());
+        if (!arr) {
+            error("IndexExpr: failed to codegen base");
+            return nullptr;
+        }
+    }
+
+    // 获取下标
+    llvm::Value* idx = codegen(node->index.get());
+    if (!idx) {
+        error("IndexExpr: failed to codegen index");
+        return nullptr;
+    }
+
+    // 确保下标是 i32
+    if (idx->getType()->isIntegerTy(1)) {
+        idx = builder->CreateZExt(idx, builder->getInt32Ty(), "idx.zext");
+    }
+
+    // 获取数组类型
+    llvm::Type* arrType = arr->getType();
+
+    // 确定数组元素类型
+    llvm::Type* elemType = nullptr;
+
+    if (arrType->isPointerTy()) {
+        // 指针类型：尝试从 base 的 IdentExpr 获取类型信息
+        // 或者使用字节偏移方式
+        if (auto* ident = dynamic_cast<IdentExpr*>(node->base.get())) {
+            auto varIt = varDeclNodes.find(ident->name);
+            if (varIt != varDeclNodes.end()) {
+                VarDeclNode* varDecl = varIt->second;
+                std::string typeStr = varDecl->type;
+                // 解析类型字符串获取元素类型
+                if (typeStr.substr(0, 5) == "int32") {
+                    elemType = builder->getInt32Ty();
+                } else if (typeStr.substr(0, 7) == "float64") {
+                    elemType = builder->getDoubleTy();
+                } else if (typeStr.substr(0, 4) == "bool") {
+                    elemType = builder->getInt1Ty();
+                }
+            }
+        }
+        if (!elemType) {
+            elemType = builder->getInt32Ty();  // 默认 int32
+        }
+
+        // 使用字节偏移计算
+        int64_t elemSize = 4;
+        if (elemType->isIntegerTy()) {
+            elemSize = elemType->getIntegerBitWidth() / 8;
+        } else if (elemType->isDoubleTy()) {
+            elemSize = 8;
+        } else if (elemType->isFloatTy()) {
+            elemSize = 4;
+        }
+        llvm::Value* byteOffset = builder->CreateMul(idx, builder->getInt32(elemSize), "idx.bytes");
+        llvm::Value* elemPtr = builder->CreatePtrAdd(arr, byteOffset, "elem.ptr");
+
+        if (leftSide) {
+            return elemPtr;
+        } else {
+            return builder->CreateLoad(elemType, elemPtr, "elem.val");
+        }
+    } else if (arrType->isArrayTy()) {
+        // 数组类型：直接使用 CreateGEP
+        llvm::ArrayType* arrayTy = static_cast<llvm::ArrayType*>(arrType);
+        elemType = arrayTy->getElementType();
+
+        llvm::Value* zero = builder->getInt32(0);
+        llvm::Value* elemPtr = builder->CreateGEP(arrType, arr, {zero, idx}, "elem.ptr");
+
+        if (leftSide) {
+            return elemPtr;
+        } else {
+            return builder->CreateLoad(elemType, elemPtr, "elem.val");
+        }
+    } else {
+        error("IndexExpr: base must be pointer or array type");
+        return nullptr;
+    }
+}
 llvm::Value* CodeGen::codegen(MemberExpr* node) {
     // 获取对象基地址
     llvm::Value* obj = nullptr;
