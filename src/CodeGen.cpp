@@ -810,4 +810,30 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
     builder->CreateStore(value, alloca);
     return value;
 }
-llvm::Value* CodeGen::codegen(InitListExpr* node) { return nullptr; }
+llvm::Value* CodeGen::codegen(InitListExpr* node) {
+    // 聚合初始化使用 insertvalue 指令
+    llvm::Type* aggType = nullptr;
+    llvm::Value* result = nullptr;
+
+    for (size_t i = 0; i < node->elements.size(); ++i) {
+        llvm::Value* elemVal = codegen(node->elements[i].get());
+        if (!elemVal) {
+            error("InitListExpr: failed to codegen element");
+            return nullptr;
+        }
+
+        if (i == 0) {
+            // 第一个元素，确定类型并创建 undef
+            aggType = elemVal->getType();
+            result = llvm::UndefValue::get(aggType);
+        }
+
+        if (aggType->isStructTy()) {
+            result = builder->CreateInsertValue(result, elemVal, i, "init.val");
+        } else if (aggType->isArrayTy()) {
+            result = builder->CreateInsertValue(result, elemVal, i, "init.val");
+        }
+    }
+
+    return result;
+}
