@@ -1186,6 +1186,53 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
         }
     }
 
+    // 检查是否是数组类型，进行整体赋值（llvm.memcpy）
+    if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(destPtr)) {
+        if (alloca->getAllocatedType()->isArrayTy()) {
+            llvm::ArrayType* arrTy = static_cast<llvm::ArrayType*>(alloca->getAllocatedType());
+            llvm::Type* elemTy = arrTy->getElementType();
+
+            // 计算大小
+            uint64_t totalSize = arrTy->getNumElements() * (elemTy->isIntegerTy(32) ? 4 :
+                                      elemTy->isDoubleTy() ? 8 :
+                                      elemTy->isFloatTy() ? 4 : elemTy->getScalarSizeInBits() / 8);
+
+            // 获取源地址（使用 leftSide = true 获取地址而非加载值）
+            bool oldLeftSide = leftSide;
+            leftSide = true;
+            llvm::Value* srcAlloca = codegen(node->value.get());
+            leftSide = oldLeftSide;
+
+            if (!srcAlloca) {
+                error("AssignExpr: failed to codegen array source");
+                return nullptr;
+            }
+
+            // 获取元素指针
+            llvm::Value* zero = builder->getInt32(0);
+            llvm::Value* destPtrArr = builder->CreateGEP(arrTy, alloca, {zero, zero}, "dest.ptr");
+            llvm::Value* srcPtr = builder->CreateGEP(arrTy, srcAlloca, {zero, zero}, "src.ptr");
+
+            // 转换为 i8*
+            llvm::PointerType* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+            llvm::Value* destI8 = builder->CreateBitCast(destPtrArr, i8PtrTy, "dest.i8");
+            llvm::Value* srcI8 = builder->CreateBitCast(srcPtr, i8PtrTy, "src.i8");
+
+            // 调用 memcpy - 使用正确的 LLVM intrinsic
+            llvm::Function* memcpyFunc = llvm::Intrinsic::getDeclaration(module.get(), llvm::Intrinsic::memcpy,
+                {i8PtrTy, i8PtrTy, builder->getInt64Ty()});
+
+            builder->CreateCall(memcpyFunc, {
+                destI8,
+                srcI8,
+                builder->getInt64(totalSize),
+                builder->getInt1(false)
+            });
+
+            return srcAlloca;
+        }
+    }
+
     builder->CreateStore(value, destPtr);
     return value;
 }
