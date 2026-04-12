@@ -311,6 +311,20 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
                 newParamTypes.push_back(builder->getInt1Ty());
             } else if (param.first == "string") {
                 newParamTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else if (param.first.find('[') != std::string::npos) {
+                // 数组参数退化为指针 (int32[5] → i32*)
+                size_t bracketPos = param.first.find('[');
+                std::string baseTypeStr = param.first.substr(0, bracketPos);
+                llvm::Type* baseType = nullptr;
+                if (baseTypeStr == "int32") baseType = builder->getInt32Ty();
+                else if (baseTypeStr == "float64") baseType = builder->getDoubleTy();
+                else if (baseTypeStr == "bool") baseType = builder->getInt1Ty();
+                if (baseType) {
+                    newParamTypes.push_back(llvm::PointerType::get(baseType, 0));
+                } else {
+                    error("FuncDefNode: unknown array base type: " + baseTypeStr);
+                    return nullptr;
+                }
             } else {
                 // 结构体类型参数 - 传引用
                 llvm::StructType* paramStructTy = llvm::StructType::getTypeByName(*context, "struct " + param.first);
@@ -345,6 +359,20 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
                 paramTypes.push_back(builder->getInt1Ty());
             } else if (param.first == "string") {
                 paramTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else if (param.first.find('[') != std::string::npos) {
+                // 数组参数退化为指针 (int32[5] → i32*)
+                size_t bracketPos = param.first.find('[');
+                std::string baseTypeStr = param.first.substr(0, bracketPos);
+                llvm::Type* baseType = nullptr;
+                if (baseTypeStr == "int32") baseType = builder->getInt32Ty();
+                else if (baseTypeStr == "float64") baseType = builder->getDoubleTy();
+                else if (baseTypeStr == "bool") baseType = builder->getInt1Ty();
+                if (baseType) {
+                    paramTypes.push_back(llvm::PointerType::get(baseType, 0));
+                } else {
+                    error("FuncDefNode: unknown array base type: " + baseTypeStr);
+                    return nullptr;
+                }
             } else {
                 // 结构体类型参数 - 传引用
                 llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, param.first);
@@ -1228,12 +1256,38 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
         args.push_back(tempRet);
     }
 
-    for (auto& argExpr : node->args) {
+    for (size_t argIdx = 0; argIdx < node->args.size(); ++argIdx) {
+        auto& argExpr = node->args[argIdx];
         llvm::Value* argVal = codegen(argExpr.get());
         if (!argVal) {
             error("CallExpr: failed to codegen argument");
             return nullptr;
         }
+
+        // 数组参数退化为指针 (array decay)
+        // 如果实参是数组但形参是指针，需要取数组的地址
+        size_t paramIdx = argIdx;
+        if (isSret && sretStructTy) {
+            paramIdx = argIdx + 1; // sret adds one extra arg at the beginning
+        }
+        if (paramIdx < callee->arg_size()) {
+            llvm::Argument* param = callee->getArg(paramIdx);
+            llvm::Type* paramType = param->getType();
+            llvm::Type* argType = argVal->getType();
+
+            // 如果参数是指针但实参是数组，需要取地址
+            if (paramType->isPointerTy() && argType->isArrayTy()) {
+                // 创建临时 alloca 来存储数组，然后传递指针
+                llvm::AllocaInst* tempAlloca = createEntryBlockAlloca(
+                    currentFunction, "arg.tmp", argType);
+                builder->CreateStore(argVal, tempAlloca);
+                // 传递数组的地址（第一个元素的地址）
+                llvm::Value* zero = builder->getInt32(0);
+                llvm::Value* elemPtr = builder->CreateGEP(argType, tempAlloca, {zero, zero}, "elem.ptr");
+                argVal = elemPtr;
+            }
+        }
+
         args.push_back(argVal);
     }
 
