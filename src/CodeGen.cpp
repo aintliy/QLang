@@ -1745,8 +1745,8 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
 
                 // Fix k loop PHIs with backedge from kIncBB
                 k->addIncoming(kNext, kIncBB);
-                jCur->addIncoming(j, kIncBB);
-                iCurK->addIncoming(i, kIncBB);
+                jCur->addIncoming(jCur, kIncBB);
+                iCurK->addIncoming(iCurK, kIncBB);
 
                 // j inc block: check j < rCols -> jLoop else -> iIncBB
                 builder->SetInsertPoint(jIncBB);
