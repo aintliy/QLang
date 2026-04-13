@@ -770,8 +770,16 @@ std::unique_ptr<ASTNode> Parser::parseCaseLabel() {
 
 std::unique_ptr<ASTNode> Parser::parseInitializer() {
     if (check(TokenKind::LBRACE)) {
-        // Aggregate initialization {1, 2, 3}
-        return parseBlock();
+        // Aggregate initialization {expr, expr, ...} -> InitListExpr
+        consume(TokenKind::LBRACE, "expected '{'");
+        auto node = std::make_unique<InitListExpr>();
+        if (!check(TokenKind::RBRACE)) {
+            do {
+                node->elements.push_back(parseInitializer());
+            } while (match(TokenKind::COMMA));
+        }
+        consume(TokenKind::RBRACE, "expected '}'");
+        return node;
     }
     return parseExpr();
 }
