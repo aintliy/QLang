@@ -215,6 +215,15 @@ Token Lexer::scanNumber(char firstChar) {
         value += advance();
     }
 
+    // Check for matrix dimension literal (e.g., 2x3, 3x4)
+    if (peek() == 'x' && isDigit(peekNext())) {
+        value += advance();  // consume 'x'
+        while (!isAtEnd() && isDigit(peek())) {
+            value += advance();
+        }
+        return Token(TokenKind::MAT_DIM, value, startLine, startCol);
+    }
+
     // Float part
     if (peek() == '.' && isDigit(peekNext())) {
         value += advance();  // '.'
