@@ -613,6 +613,25 @@ void Checker::checkUnary(UnaryExpr* expr) {
     if (!isSupportedUnaryOp(expr->op)) {
         error(0, 0, "semantic error: unsupported unary operator '" + expr->op + "'");
     }
+
+    std::string operandType = getExprType(expr->operand.get());
+
+    // 检查矩阵求负（-matrix）：无维度限制
+    if (expr->op == "-") {
+        if (isMatrixType(operandType)) {
+            // 矩阵求负合法，无需额外检查
+            checkExpr(expr->operand.get());
+            return;
+        }
+    }
+
+    // 检查矩阵不能用于逻辑非
+    if (expr->op == "!") {
+        if (isMatrixType(operandType)) {
+            error(0, 0, "semantic error: matrix cannot be used with logical not");
+        }
+    }
+
     checkExpr(expr->operand.get());
 }
 
