@@ -60,14 +60,13 @@ llvm::Type* CodeGen::getMatrixLLVMType(const std::string& matrixType) {
     return llvm::ArrayType::get(innerType, rows);
 }
 
-llvm::Value* CodeGen::createMatrixElementPtr(llvm::Value* matrix, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name) {
+llvm::Value* CodeGen::createMatrixElementPtr(llvm::Value* matrix, llvm::Type* elemType, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name) {
     // matrix 是指向嵌套数组的指针 [rows x [cols x E]]*
     // 使用 GEP 获取 matrix[rowIdx][colIdx] 的地址
     llvm::Type* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
     // 将 matrix 转换为 i8* 以便字节偏移计算
     llvm::Value* matrixAsI8 = builder->CreateBitCast(matrix, i8PtrTy, "matrix.i8");
     // 计算行偏移: rowIdx * cols * elemSize
-    llvm::Type* elemType = matrix->getType()->getContainedType(0)->getContainedType(0);
     int elemSize = elemType->isIntegerTy() ? (elemType->getIntegerBitWidth() / 8) : 8;
     llvm::Value* rowSize = builder->getInt32(cols * elemSize);
     llvm::Value* rowOffset = builder->CreateMul(rowIdx, rowSize, "row.offset");
@@ -179,6 +178,18 @@ void CodeGen::declareRuntimeFunctions() {
     llvm::FunctionType* void_string = llvm::FunctionType::get(
         builder->getVoidTy(), llvm::ArrayRef<llvm::Type*>(stringPtrTy), false);
     module->getOrInsertFunction("println_string", void_string);
+
+    // println_matrix_int(i32*, i32, i32) and println_matrix_float(double*, i32, i32)
+    llvm::PointerType* int32PtrTy = llvm::PointerType::get(builder->getInt32Ty(), 0);
+    llvm::PointerType* float64PtrTy = llvm::PointerType::get(builder->getDoubleTy(), 0);
+    llvm::Type* matrixIntParams[3] = {int32PtrTy, builder->getInt32Ty(), builder->getInt32Ty()};
+    llvm::FunctionType* void_matrix_int = llvm::FunctionType::get(
+        builder->getVoidTy(), llvm::ArrayRef<llvm::Type*>(matrixIntParams, 3), false);
+    module->getOrInsertFunction("println_matrix_int", void_matrix_int);
+    llvm::Type* matrixFloatParams[3] = {float64PtrTy, builder->getInt32Ty(), builder->getInt32Ty()};
+    llvm::FunctionType* void_matrix_float = llvm::FunctionType::get(
+        builder->getVoidTy(), llvm::ArrayRef<llvm::Type*>(matrixFloatParams, 3), false);
+    module->getOrInsertFunction("println_matrix_float", void_matrix_float);
 
     // print_* 函数声明 (无换行)
     module->getOrInsertFunction("print_int", void_i32);
@@ -1209,8 +1220,12 @@ llvm::Value* CodeGen::codegen(IdentExpr* node) {
     return builder->CreateLoad(allocType, it->second, node->name);
 }
 llvm::Value* CodeGen::codegen(BinaryExpr* node) {
+    // 保存并重置 leftSide 上下文，确保正确处理操作数
+    bool oldLeftSide = leftSide;
+    leftSide = false;
     llvm::Value* left = codegen(node->left.get());
     llvm::Value* right = codegen(node->right.get());
+    leftSide = oldLeftSide;
     if (!left || !right) {
         error("BinaryExpr: failed to codegen operands");
         return nullptr;
@@ -1456,8 +1471,8 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 builder->CreateBr(innerLoopBB);
                 builder->SetInsertPoint(innerLoopBB);
                 llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
-                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, rows, cols, iMid, jInner, "left.elem");
-                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, rows, cols, iMid, jInner, "right.elem");
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, rows, cols, iMid, jInner, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, rows, cols, iMid, jInner, "right.elem");
                 llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
                 llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
                 llvm::Value* resultElem = nullptr;
@@ -1468,7 +1483,7 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                     if (isFloat) resultElem = builder->CreateFSub(leftElem, rightElem, "sub.elem");
                     else resultElem = builder->CreateSub(leftElem, rightElem, "sub.elem");
                 }
-                llvm::Value* resultElemPtr = createMatrixElementPtr(result, rows, cols, iMid, jInner, "result.elem");
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iMid, jInner, "result.elem");
                 builder->CreateStore(resultElem, resultElemPtr);
                 llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
                 llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
@@ -1540,12 +1555,12 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 llvm::PHINode* j_k = builder->CreatePHI(builder->getInt32Ty(), 1, "j.k");
                 llvm::PHINode* k = builder->CreatePHI(builder->getInt32Ty(), 2, "k");
                 k->addIncoming(builder->getInt32(0), jLoopBB);
-                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, lRows, lCols, i_k, k, "left.elem");
-                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, rRows, rCols, k, j_k, "right.elem");
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, lRows, lCols, i_k, k, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, rRows, rCols, k, j_k, "right.elem");
                 llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
                 llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
                 llvm::Value* prod = isFloat ? builder->CreateFMul(leftElem, rightElem, "prod.elem") : builder->CreateMul(leftElem, rightElem, "prod.elem");
-                llvm::Value* resultElemPtr = createMatrixElementPtr(result, lRows, rCols, i_k, j_k, "result.elem");
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, lRows, rCols, i_k, j_k, "result.elem");
                 llvm::Value* oldResult = builder->CreateLoad(elemllvmType, resultElemPtr, "result.elem.val");
                 llvm::Value* newResult = isFloat ? builder->CreateFAdd(oldResult, prod, "add.elem") : builder->CreateAdd(oldResult, prod, "add.elem");
                 builder->CreateStore(newResult, resultElemPtr);
@@ -1592,7 +1607,11 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
     return nullptr;
 }
 llvm::Value* CodeGen::codegen(UnaryExpr* node) {
+    // 保存并重置 leftSide 上下文
+    bool oldLeftSide = leftSide;
+    leftSide = false;
     llvm::Value* operand = codegen(node->operand.get());
+    leftSide = oldLeftSide;
     if (!operand) {
         error("UnaryExpr: failed to codegen operand");
         return nullptr;
@@ -1638,10 +1657,10 @@ llvm::Value* CodeGen::codegen(UnaryExpr* node) {
                     builder->CreateBr(innerLoopBB);
                     builder->SetInsertPoint(innerLoopBB);
                     llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
-                    llvm::Value* elemPtr = createMatrixElementPtr(ptr, rows, cols, iMid, jInner, "elem.ptr");
+                    llvm::Value* elemPtr = createMatrixElementPtr(ptr, elemllvmType, rows, cols, iMid, jInner, "elem.ptr");
                     llvm::Value* elem = builder->CreateLoad(elemllvmType, elemPtr, "elem.val");
                     llvm::Value* negElem = isFloat ? builder->CreateFNeg(elem, "neg.elem") : builder->CreateNeg(elem, "neg.elem");
-                    llvm::Value* resultPtr = createMatrixElementPtr(result, rows, cols, iMid, jInner, "result.elem");
+                    llvm::Value* resultPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iMid, jInner, "result.elem");
                     builder->CreateStore(negElem, resultPtr);
                     llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
                     llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
@@ -1707,6 +1726,39 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
         if (!argVal) {
             error("CallExpr: failed to codegen argument");
             return nullptr;
+        }
+
+        // 特殊处理 println_matrix_int 和 println_matrix_float
+        // 需要传递 (matrix_ptr, rows, cols) 而不是 (matrix_ptr)
+        if ((node->callee == "println_matrix_int" || node->callee == "println_matrix_float") && argIdx == 0) {
+            // argVal 是 matrix 的 alloca 或值
+            // 获取 matrix 的地址（如果 argVal 是数组值，需要取其地址）
+            llvm::Type* argType = argVal->getType();
+            llvm::Value* matrixPtr = argVal;
+            if (argType->isArrayTy()) {
+                // 数组类型，需要取地址
+                llvm::AllocaInst* tempAlloca = createEntryBlockAlloca(
+                    currentFunction, "matrix.tmp", argType);
+                builder->CreateStore(argVal, tempAlloca);
+                llvm::Value* zero = builder->getInt32(0);
+                matrixPtr = builder->CreateGEP(argType, tempAlloca, {zero, zero}, "matrix.ptr");
+            }
+            args.push_back(matrixPtr);
+
+            // 获取 matrix 的维度
+            // 需要通过 IdentExpr 查找 matrix 的 VarDeclNode
+            if (auto* ident = dynamic_cast<IdentExpr*>(argExpr.get())) {
+                auto it = varDeclNodes.find(ident->name);
+                if (it != varDeclNodes.end()) {
+                    VarDeclNode* varDecl = it->second;
+                    if (isMatrixType(varDecl->type)) {
+                        auto [rows, cols] = parseMatrixDims(varDecl->type);
+                        args.push_back(builder->getInt32(rows));
+                        args.push_back(builder->getInt32(cols));
+                    }
+                }
+            }
+            continue; // 跳过下面的通用处理
         }
 
         // 数组参数退化为指针 (array decay)
@@ -1837,7 +1889,7 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
                     createMatrixBoundsCheck(rowIdx, colIdx, rows, cols, "matrix.bounds");
 
                     // 获取元素指针
-                    llvm::Value* elemPtr = createMatrixElementPtr(matrixPtr, rows, cols, rowIdx, colIdx, "matrix.elem");
+                    llvm::Value* elemPtr = createMatrixElementPtr(matrixPtr, llvmElemType, rows, cols, rowIdx, colIdx, "matrix.elem");
 
                     if (leftSide) {
                         return elemPtr;

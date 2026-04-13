@@ -80,7 +80,7 @@ private:
     std::pair<int, int> parseMatrixDims(const std::string& matrixType);
     std::string getMatrixElementType(const std::string& matrixType);
     llvm::Type* getMatrixLLVMType(const std::string& matrixType);
-    llvm::Value* createMatrixElementPtr(llvm::Value* matrix, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name);
+    llvm::Value* createMatrixElementPtr(llvm::Value* matrix, llvm::Type* elemType, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name);
     void createMatrixBoundsCheck(llvm::Value* rowIdx, llvm::Value* colIdx, int rows, int cols, const std::string& name);
 
     // 运行时库声明
