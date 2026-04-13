@@ -383,6 +383,50 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
         }
     } else if (node->returnType == "string") {
         retType = llvm::PointerType::get(getStringType(), 0);
+    } else if (isMatrixType(node->returnType)) {
+        // 矩阵作为返回值：使用 sret 约定
+        llvm::Type* matType = getMatrixLLVMType(node->returnType);
+        retType = builder->getVoidTy();  // sret: 返回 void
+        llvm::PointerType* sretTy = llvm::PointerType::get(matType, 0);
+        std::vector<llvm::Type*> newParamTypes;
+        newParamTypes.insert(newParamTypes.begin(), sretTy);
+        // 添加原始参数（复用现有逻辑，但需要处理矩阵参数）
+        for (auto& param : node->params) {
+            if (param.first == "int32") {
+                newParamTypes.push_back(builder->getInt32Ty());
+            } else if (param.first == "float64") {
+                newParamTypes.push_back(builder->getDoubleTy());
+            } else if (param.first == "bool") {
+                newParamTypes.push_back(builder->getInt1Ty());
+            } else if (param.first == "string") {
+                newParamTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else if (isMatrixType(param.first)) {
+                llvm::Type* mType = getMatrixLLVMType(param.first);
+                newParamTypes.push_back(llvm::PointerType::get(mType, 0));
+            } else if (param.first.find('[') != std::string::npos) {
+                size_t bracketPos = param.first.find('[');
+                std::string baseTypeStr = param.first.substr(0, bracketPos);
+                llvm::Type* baseType = nullptr;
+                if (baseTypeStr == "int32") baseType = builder->getInt32Ty();
+                else if (baseTypeStr == "float64") baseType = builder->getDoubleTy();
+                else if (baseTypeStr == "bool") baseType = builder->getInt1Ty();
+                if (baseType) {
+                    newParamTypes.push_back(llvm::PointerType::get(baseType, 0));
+                }
+            } else {
+                llvm::StructType* paramStructTy = llvm::StructType::getTypeByName(*context, "struct " + param.first);
+                if (!paramStructTy) {
+                    paramStructTy = llvm::StructType::getTypeByName(*context, param.first);
+                }
+                if (paramStructTy) {
+                    newParamTypes.push_back(llvm::PointerType::get(paramStructTy, 0));
+                }
+            }
+        }
+        paramTypes = newParamTypes;
+        currentFunctionIsSret = true;
+        currentSretType = matType;
+        sretTypes[node->name] = matType;
     } else {
         // 结构体类型 - sret 约定
         llvm::StructType* structTy = llvm::StructType::getTypeByName(*context, "struct " + node->returnType);
@@ -413,6 +457,9 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
                 newParamTypes.push_back(builder->getInt1Ty());
             } else if (param.first == "string") {
                 newParamTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else if (isMatrixType(param.first)) {
+                llvm::Type* mType = getMatrixLLVMType(param.first);
+                newParamTypes.push_back(llvm::PointerType::get(mType, 0));
             } else if (param.first.find('[') != std::string::npos) {
                 // 数组参数退化为指针 (int32[5] → i32*)
                 size_t bracketPos = param.first.find('[');
@@ -461,6 +508,10 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
                 paramTypes.push_back(builder->getInt1Ty());
             } else if (param.first == "string") {
                 paramTypes.push_back(llvm::PointerType::get(getStringType(), 0));
+            } else if (isMatrixType(param.first)) {
+                // 矩阵参数：传引用（退化为指针）
+                llvm::Type* matType = getMatrixLLVMType(param.first);
+                paramTypes.push_back(llvm::PointerType::get(matType, 0));
             } else if (param.first.find('[') != std::string::npos) {
                 // 数组参数退化为指针 (int32[5] → i32*)
                 size_t bracketPos = param.first.find('[');
@@ -566,10 +617,18 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
             i++;
             continue;
         }
-        std::string argName = arg.getName().str();
-        llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, arg.getType());
-        builder->CreateStore(&arg, alloca);
-        namedValues[argName] = alloca;
+        if (isMatrixType(node->params[i - (currentFunctionIsSret ? 1 : 0)].first)) {
+            std::string argName = arg.getName().str();
+            llvm::Type* matType = getMatrixLLVMType(node->params[i - (currentFunctionIsSret ? 1 : 0)].first);
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, llvm::PointerType::get(matType, 0));
+            builder->CreateStore(&arg, alloca);
+            namedValues[argName] = alloca;
+        } else {
+            std::string argName = arg.getName().str();
+            llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, arg.getType());
+            builder->CreateStore(&arg, alloca);
+            namedValues[argName] = alloca;
+        }
         i++;
     }
 
@@ -1625,7 +1684,7 @@ llvm::Value* CodeGen::codegen(CallExpr* node) {
                    !callee->arg_empty() &&
                    callee->getArg(0)->getType()->isPointerTy();
 
-    llvm::StructType* sretStructTy = nullptr;
+    llvm::Type* sretStructTy = nullptr;
     if (isSret) {
         auto it = sretTypes.find(node->callee);
         if (it != sretTypes.end()) {
