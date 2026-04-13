@@ -47,3 +47,26 @@ double read_float64(void) {
     scanf("%lf", &val);
     return val;
 }
+
+/* ===== 矩阵打印 ===== */
+// 打印 int32 矩阵
+void println_matrix_int(int32_t* matrix, int32_t rows, int32_t cols) {
+    for (int32_t i = 0; i < rows; i++) {
+        for (int32_t j = 0; j < cols; j++) {
+            if (j > 0) printf(" ");
+            printf("%d", matrix[i * cols + j]);
+        }
+        printf("\n");
+    }
+}
+
+// 打印 float64 矩阵
+void println_matrix_float(double* matrix, int32_t rows, int32_t cols) {
+    for (int32_t i = 0; i < rows; i++) {
+        for (int32_t j = 0; j < cols; j++) {
+            if (j > 0) printf(" ");
+            printf("%.1f", matrix[i * cols + j]);
+        }
+        printf("\n");
+    }
+}
