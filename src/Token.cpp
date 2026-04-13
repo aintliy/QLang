@@ -6,6 +6,7 @@ const char* tokenKindToString(TokenKind kind) {
         case TokenKind::INT_LIT: return "INT_LIT";
         case TokenKind::FLOAT_LIT: return "FLOAT_LIT";
         case TokenKind::STRING_LIT: return "STRING_LIT";
+        case TokenKind::MAT_DIM: return "MAT_DIM";  // 新增
         case TokenKind::END_OF_FILE: return "END_OF_FILE";
         case TokenKind::ERROR: return "ERROR";
         default: return "KEYWORD/OPERATOR";

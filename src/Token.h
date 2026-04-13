@@ -21,6 +21,7 @@ enum class TokenKind {
     KEYWORD_TRUE,
     KEYWORD_VOID,
     KEYWORD_WHILE,
+    KEYWORD_MAT,    // 新增：mat 关键字
 
     // Identifiers
     IDENT,
@@ -29,6 +30,7 @@ enum class TokenKind {
     INT_LIT,
     FLOAT_LIT,
     STRING_LIT,
+    MAT_DIM,        // 新增：矩阵维度字面量（如 2x3, 3x4）
 
     // Operators
     PLUS,       // +
