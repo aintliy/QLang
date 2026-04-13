@@ -2044,6 +2044,9 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
                     if (rowIdx->getType()->isIntegerTy(1)) rowIdx = builder->CreateZExt(rowIdx, builder->getInt32Ty(), "idx.zext");
                     if (colIdx->getType()->isIntegerTy(1)) colIdx = builder->CreateZExt(colIdx, builder->getInt32Ty(), "idx.zext");
 
+                    // 越界检查
+                    createMatrixBoundsCheck(rowIdx, colIdx, rows, cols, "matrix.bounds");
+
                     // 获取矩阵地址
                     llvm::Value* matrixPtr = nullptr;
                     auto it = namedValues.find(ident->name);
