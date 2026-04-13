@@ -342,6 +342,20 @@ std::string Checker::getExprType(ASTNode* expr) {
         // 算术运算 - 如果任一操作数是 float64，结果是 float64，否则是 int32
         std::string left = getExprType(bin->left.get());
         std::string right = getExprType(bin->right.get());
+
+        // 矩阵运算返回矩阵类型
+        if (isMatrixType(left) || isMatrixType(right)) {
+            // 数乘：常量 * 矩阵 或 矩阵 * 常量 -> 返回矩阵类型
+            if (bin->op == "*") {
+                if (isMatrixType(left)) return left;
+                if (isMatrixType(right)) return right;
+            }
+            // 矩阵加法/减法返回左操作数类型（两者维度相同）
+            if (bin->op == "+" || bin->op == "-") {
+                return left;
+            }
+        }
+
         if (left == "float64" || right == "float64") return "float64";
         return "int32";
     }
@@ -355,7 +369,12 @@ std::string Checker::getExprType(ASTNode* expr) {
         return "int32";
     }
     if (auto* idx = dynamic_cast<IndexExpr*>(expr)) {
-        // 数组元素类型 - 目前假设为 int32
+        std::string baseType = getExprType(idx->base.get());
+        // 矩阵下标访问 mat[i][j] -> 返回元素类型
+        if (isMatrixType(baseType)) {
+            return getMatrixElementType(baseType);
+        }
+        // 数组下标访问 arr[i] -> 目前假设返回 int32
         return "int32";
     }
     if (auto* member = dynamic_cast<MemberExpr*>(expr)) {
