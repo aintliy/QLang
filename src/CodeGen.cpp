@@ -596,6 +596,16 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
             gType = builder->getDoubleTy();
         } else if (node->type == "bool") {
             gType = builder->getInt1Ty();
+        } else if (isMatrixType(node->type)) {
+            // 全局矩阵默认零初始化
+            llvm::Type* matType = getMatrixLLVMType(node->type);
+            llvm::Constant* initVal = llvm::ConstantAggregateZero::get(matType);
+            auto* gVar = new llvm::GlobalVariable(
+                *module, matType, /*isConstant=*/false,
+                llvm::GlobalValue::InternalLinkage, initVal, node->name);
+            globalVars[node->name] = gVar;
+            varDeclNodes[node->name] = node;
+            return gVar;
         } else {
             error("VarDeclNode: unsupported global variable type: " + node->type);
             return nullptr;
@@ -664,6 +674,13 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
         varType = builder->getDoubleTy();
     } else if (node->type == "bool") {
         varType = builder->getInt1Ty();
+    } else if (isMatrixType(node->type)) {
+        // 矩阵类型: mat<int32> 2x3 或 mat<float64> 2x3
+        varType = getMatrixLLVMType(node->type);
+        if (!varType) {
+            error("VarDeclNode: failed to get matrix LLVM type for: " + node->type);
+            return nullptr;
+        }
     } else if (node->type == "string") {
         varType = llvm::PointerType::get(getStringType(), 0);
     } else {
