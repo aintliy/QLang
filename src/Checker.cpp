@@ -124,6 +124,24 @@ void Checker::checkStmt(ASTNode* stmt) {
 }
 
 void Checker::checkVarDecl(VarDeclNode* decl) {
+    // 检查矩阵类型维度限制
+    if (isMatrixType(decl->type)) {
+        auto [rows, cols] = parseMatrixDims(decl->type);
+
+        // 检查维度必须为正整数
+        if (rows <= 0 || cols <= 0) {
+            error(0, 0, "semantic error: matrix dimensions must be positive integers");
+        }
+
+        // 检查总元素数不超过限制
+        int64_t totalElements = static_cast<int64_t>(rows) * static_cast<int64_t>(cols);
+        if (totalElements > MAX_ARRAY_SIZE) {
+            error(0, 0, "semantic error: matrix total elements " +
+                      std::to_string(totalElements) +
+                      " exceeds maximum " + std::to_string(MAX_ARRAY_SIZE));
+        }
+    }
+
     // 检查数组大小限制
     checkArraySizeLimit(decl->type, 0, 0);
     if (decl->initializer) {
@@ -131,6 +149,15 @@ void Checker::checkVarDecl(VarDeclNode* decl) {
         // Verify initializer type is compatible with declared type
         std::string valueType = getExprType(decl->initializer.get());
         std::string targetType = decl->type;
+
+        // 禁止矩阵与普通二维数组互转
+        if (isMatrixType(targetType) && is2DArrayType(valueType)) {
+            error(0, 0, "semantic error: cannot convert array to matrix");
+        }
+        if (is2DArrayType(targetType) && isMatrixType(valueType)) {
+            error(0, 0, "semantic error: cannot convert matrix to array");
+        }
+
         if (!canImplicitConvert(valueType, targetType)) {
             error(0, 0, "semantic error: cannot convert '" + valueType +
                   "' to '" + targetType + "'");
