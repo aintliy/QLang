@@ -1,5 +1,96 @@
 #include "CodeGen.h"
 #include "Diagnostics.h"
+
+// 矩阵类型检查辅助函数
+bool CodeGen::isMatrixType(const std::string& typeName) {
+    return typeName.substr(0, 4) == "mat<";
+}
+
+std::pair<int, int> CodeGen::parseMatrixDims(const std::string& matrixType) {
+    // 解析 "mat<int32> 2x3" 返回 {2, 3}
+    size_t spacePos = matrixType.find(' ');
+    if (spacePos == std::string::npos) return {0, 0};
+    std::string dims = matrixType.substr(spacePos + 1);  // "2x3"
+    size_t xPos = dims.find('x');
+    if (xPos == std::string::npos) return {0, 0};
+    try {
+        int rows = std::stoi(dims.substr(0, xPos));
+        int cols = std::stoi(dims.substr(xPos + 1));
+        return {rows, cols};
+    } catch (...) {
+        return {0, 0};
+    }
+}
+
+std::string CodeGen::getMatrixElementType(const std::string& matrixType) {
+    // 解析 "mat<int32> 2x3" 返回 "int32"
+    if (!isMatrixType(matrixType)) return "";
+    size_t ltPos = matrixType.find('<');
+    size_t gtPos = matrixType.find('>');
+    if (ltPos == std::string::npos || gtPos == std::string::npos) return "";
+    return matrixType.substr(ltPos + 1, gtPos - ltPos - 1);
+}
+
+llvm::Type* CodeGen::getMatrixLLVMType(const std::string& matrixType) {
+    // 矩阵映射为嵌套数组类型: [rows x [cols x element_type]]
+    auto [rows, cols] = parseMatrixDims(matrixType);
+    std::string elemTypeStr = getMatrixElementType(matrixType);
+    llvm::Type* elemType = nullptr;
+    if (elemTypeStr == "int32") {
+        elemType = builder->getInt32Ty();
+    } else if (elemTypeStr == "float64") {
+        elemType = builder->getDoubleTy();
+    } else {
+        error("getMatrixLLVMType: unknown element type: " + elemTypeStr);
+        return nullptr;
+    }
+    // [cols x elem_type] 然后 [rows x [cols x elem_type]]
+    llvm::ArrayType* innerType = llvm::ArrayType::get(elemType, cols);
+    return llvm::ArrayType::get(innerType, rows);
+}
+
+llvm::Value* CodeGen::createMatrixElementPtr(llvm::Value* matrix, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name) {
+    // matrix 是指向嵌套数组的指针 [rows x [cols x E]]*
+    // 使用 GEP 获取 matrix[rowIdx][colIdx] 的地址
+    llvm::Type* i8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
+    // 将 matrix 转换为 i8* 以便字节偏移计算
+    llvm::Value* matrixAsI8 = builder->CreateBitCast(matrix, i8PtrTy, "matrix.i8");
+    // 计算行偏移: rowIdx * cols * elemSize
+    llvm::Type* elemType = matrix->getType()->getContainedType(0)->getContainedType(0);
+    int elemSize = elemType->isIntegerTy() ? (elemType->getIntegerBitWidth() / 8) : 8;
+    llvm::Value* rowSize = builder->getInt32(cols * elemSize);
+    llvm::Value* rowOffset = builder->CreateMul(rowIdx, rowSize, "row.offset");
+    // 计算列偏移: colIdx * elemSize
+    llvm::Value* elemSizeVal = builder->getInt32(elemSize);
+    llvm::Value* colOffset = builder->CreateMul(colIdx, elemSizeVal, "col.offset");
+    // 总偏移
+    llvm::Value* totalOffset = builder->CreateAdd(rowOffset, colOffset, "total.offset");
+    llvm::Value* elemPtrI8 = builder->CreateGEP(builder->getInt8Ty(), matrixAsI8, totalOffset, "elem.ptr.i8");
+    llvm::PointerType* elemPtrTy = llvm::PointerType::get(elemType, 0);
+    return builder->CreateBitCast(elemPtrI8, elemPtrTy, name);
+}
+
+void CodeGen::createMatrixBoundsCheck(llvm::Value* rowIdx, llvm::Value* colIdx, int rows, int cols, const std::string& name) {
+    llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "matrix.bounds.ok", func);
+    llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "matrix.bounds.error", func);
+    // 检查 rowIdx < 0 || rowIdx >= rows
+    llvm::Value* rowCmpLow = builder->CreateICmpSLT(rowIdx, builder->getInt32(0), "row.cmp.low");
+    llvm::Value* rowCmpHigh = builder->CreateICmpSGE(rowIdx, builder->getInt32(rows), "row.cmp.high");
+    llvm::Value* rowOut = builder->CreateOr(rowCmpLow, rowCmpHigh, "row.out");
+    // 检查 colIdx < 0 || colIdx >= cols
+    llvm::Value* colCmpLow = builder->CreateICmpSLT(colIdx, builder->getInt32(0), "col.cmp.low");
+    llvm::Value* colCmpHigh = builder->CreateICmpSGE(colIdx, builder->getInt32(cols), "col.cmp.high");
+    llvm::Value* colOut = builder->CreateOr(colCmpLow, colCmpHigh, "col.out");
+    // 总越界 = rowOut || colOut
+    llvm::Value* outOfBounds = builder->CreateOr(rowOut, colOut, "out.of.bounds");
+    builder->CreateCondBr(outOfBounds, errorBB, okBB);
+    builder->SetInsertPoint(errorBB);
+    llvm::Function* abortFunc = module->getFunction("abort");
+    builder->CreateCall(abortFunc);
+    builder->CreateUnreachable();
+    builder->SetInsertPoint(okBB);
+}
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <iostream>

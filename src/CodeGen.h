@@ -75,6 +75,14 @@ private:
     void collectFunctionCalls(FuncDefNode* node);
     bool isFunctionRecursive(const std::string& funcName);
 
+    // 矩阵类型辅助函数
+    bool isMatrixType(const std::string& typeName);
+    std::pair<int, int> parseMatrixDims(const std::string& matrixType);
+    std::string getMatrixElementType(const std::string& matrixType);
+    llvm::Type* getMatrixLLVMType(const std::string& matrixType);
+    llvm::Value* createMatrixElementPtr(llvm::Value* matrix, int rows, int cols, llvm::Value* rowIdx, llvm::Value* colIdx, const std::string& name);
+    void createMatrixBoundsCheck(llvm::Value* rowIdx, llvm::Value* colIdx, int rows, int cols, const std::string& name);
+
     // 运行时库声明
     void declareRuntimeFunctions();
 
