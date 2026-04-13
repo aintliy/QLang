@@ -1541,6 +1541,68 @@ llvm::Value* CodeGen::codegen(UnaryExpr* node) {
     if (node->op == "-") {
         if (operand->getType()->isIntegerTy(32)) return builder->CreateNeg(operand, "neg.tmp");
         else if (operand->getType()->isDoubleTy()) return builder->CreateFNeg(operand, "neg.tmp");
+        else if (operand->getType()->isArrayTy()) {
+            // 矩阵求负：检查是否是矩阵类型
+            auto it = varDeclNodes.find(getLastIdentName(node->operand.get()));
+            if (it != varDeclNodes.end()) {
+                VarDeclNode* decl = it->second;
+                if (isMatrixType(decl->type)) {
+                    auto [rows, cols] = parseMatrixDims(decl->type);
+                    std::string elemType = getMatrixElementType(decl->type);
+                    bool isFloat = elemType == "float64";
+                    llvm::Type* elemllvmType = isFloat ? builder->getDoubleTy() : builder->getInt32Ty();
+                    llvm::Value* ptr = nullptr;
+                    if (auto* ident = dynamic_cast<IdentExpr*>(node->operand.get())) {
+                        auto it2 = namedValues.find(ident->name);
+                        if (it2 != namedValues.end()) ptr = it2->second;
+                    }
+                    if (!ptr) {
+                        error("UnaryExpr: matrix operand must be a variable");
+                        return nullptr;
+                    }
+                    llvm::Type* matType = getMatrixLLVMType(decl->type);
+                    llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.neg.result", matType);
+                    llvm::Function* func = builder->GetInsertBlock()->getParent();
+                    llvm::BasicBlock* outerLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.outer", func);
+                    llvm::BasicBlock* midLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.mid", func);
+                    llvm::BasicBlock* innerLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.inner", func);
+                    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "neg.loop.after", func);
+                    builder->CreateBr(outerLoopBB);
+                    builder->SetInsertPoint(outerLoopBB);
+                    llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
+                    i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
+                    builder->CreateBr(midLoopBB);
+                    builder->SetInsertPoint(midLoopBB);
+                    llvm::PHINode* iMid = builder->CreatePHI(builder->getInt32Ty(), 1, "i.mid");
+                    llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
+                    j->addIncoming(builder->getInt32(0), outerLoopBB);
+                    builder->CreateBr(innerLoopBB);
+                    builder->SetInsertPoint(innerLoopBB);
+                    llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
+                    llvm::Value* elemPtr = createMatrixElementPtr(ptr, rows, cols, iMid, jInner, "elem.ptr");
+                    llvm::Value* elem = builder->CreateLoad(elemllvmType, elemPtr, "elem.val");
+                    llvm::Value* negElem = isFloat ? builder->CreateFNeg(elem, "neg.elem") : builder->CreateNeg(elem, "neg.elem");
+                    llvm::Value* resultPtr = createMatrixElementPtr(result, rows, cols, iMid, jInner, "result.elem");
+                    builder->CreateStore(negElem, resultPtr);
+                    llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
+                    llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
+                    builder->CreateCondBr(jCmp, innerLoopBB, afterBB);
+                    j->addIncoming(jInc, innerLoopBB);
+                    jInner->addIncoming(jInc, innerLoopBB);
+                    builder->SetInsertPoint(afterBB);
+                    llvm::PHINode* iAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "i.after");
+                    llvm::Value* iInc = builder->CreateAdd(iAfter, builder->getInt32(1), "i.inc");
+                    llvm::Value* iCmp = builder->CreateICmpSLT(iInc, builder->getInt32(rows), "i.cmp");
+                    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "neg.loop.end", func);
+                    builder->CreateCondBr(iCmp, midLoopBB, endBB);
+                    i->addIncoming(iInc, afterBB);
+                    iMid->addIncoming(iInc, afterBB);
+                    iAfter->addIncoming(iInc, afterBB);
+                    builder->SetInsertPoint(endBB);
+                    return result;
+                }
+            }
+        }
     } else if (node->op == "!") {
         if (operand->getType()->isIntegerTy(1)) return builder->CreateXor(operand, builder->getTrue(), "not.tmp");
         else if (operand->getType()->isIntegerTy(32)) {
