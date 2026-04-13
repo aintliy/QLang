@@ -1742,6 +1742,53 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
             idx = builder->CreateZExt(idx, builder->getInt32Ty(), "idx.zext");
         }
 
+        // 先检查是否是矩阵类型
+        if (auto* ident = dynamic_cast<IdentExpr*>(innerIndex->base.get())) {
+            auto varIt = varDeclNodes.find(ident->name);
+            if (varIt != varDeclNodes.end()) {
+                VarDeclNode* varDecl = varIt->second;
+                if (isMatrixType(varDecl->type)) {
+                    // 矩阵下标访问 mat[i][j]
+                    auto [rows, cols] = parseMatrixDims(varDecl->type);
+                    std::string elemType = getMatrixElementType(varDecl->type);
+                    llvm::Type* llvmElemType = elemType == "int32" ? builder->getInt32Ty() : builder->getDoubleTy();
+
+                    // 获取行下标和列下标
+                    llvm::Value* rowIdx = codegen(innerIndex->index.get());
+                    llvm::Value* colIdx = idx;
+                    if (!rowIdx || !colIdx) {
+                        error("IndexExpr: failed to codegen matrix index");
+                        return nullptr;
+                    }
+                    if (rowIdx->getType()->isIntegerTy(1)) rowIdx = builder->CreateZExt(rowIdx, builder->getInt32Ty(), "idx.zext");
+                    if (colIdx->getType()->isIntegerTy(1)) colIdx = builder->CreateZExt(colIdx, builder->getInt32Ty(), "idx.zext");
+
+                    // 获取矩阵地址
+                    llvm::Value* matrixPtr = nullptr;
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) {
+                        matrixPtr = it->second;
+                    }
+                    if (!matrixPtr) {
+                        error("IndexExpr: undefined matrix variable: " + ident->name);
+                        return nullptr;
+                    }
+
+                    // 越界检查
+                    createMatrixBoundsCheck(rowIdx, colIdx, rows, cols, "matrix.bounds");
+
+                    // 获取元素指针
+                    llvm::Value* elemPtr = createMatrixElementPtr(matrixPtr, rows, cols, rowIdx, colIdx, "matrix.elem");
+
+                    if (leftSide) {
+                        return elemPtr;
+                    } else {
+                        return builder->CreateLoad(llvmElemType, elemPtr, "matrix.elem.val");
+                    }
+                }
+            }
+        }
+
         // 调用 codegen 处理 innerIndex (matrix[0])
         // 设置 leftSide=false 以获取加载的值（行数组），而不是指针
         bool oldLeftSide = leftSide;
