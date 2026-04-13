@@ -185,6 +185,24 @@ std::string Parser::parseType() {
         typeToken = consume(TokenKind::KEYWORD_STRING, "expected string");
     } else if (check(TokenKind::KEYWORD_VOID)) {
         typeToken = consume(TokenKind::KEYWORD_VOID, "expected void");
+    } else if (check(TokenKind::KEYWORD_MAT)) {
+        consume(TokenKind::KEYWORD_MAT, "expected 'mat'");
+        consume(TokenKind::LT, "expected '<'");
+        // Parse element type (only int32 or float64 allowed)
+        std::string elemType;
+        if (check(TokenKind::KEYWORD_INT32)) {
+            elemType = consume(TokenKind::KEYWORD_INT32, "expected int32").lexeme;
+        } else if (check(TokenKind::KEYWORD_FLOAT64)) {
+            elemType = consume(TokenKind::KEYWORD_FLOAT64, "expected float64").lexeme;
+        } else {
+            error(current.line, current.col, "matrix element type must be int32 or float64");
+            elemType = "int32"; // fallback
+        }
+        consume(TokenKind::GT, "expected '>'");
+        // Parse dimension literal (e.g., 2x3)
+        Token dim = consume(TokenKind::MAT_DIM, "expected matrix dimension (e.g., 2x3)");
+        // Return "mat<int32> 2x3" format string
+        return "mat<" + elemType + "> " + dim.lexeme;
     } else if (check(TokenKind::KEYWORD_STRUCT)) {
         consume(TokenKind::KEYWORD_STRUCT, "expected struct");
         Token structName = consume(TokenKind::IDENT, "expected struct name");
