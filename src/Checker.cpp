@@ -146,6 +146,10 @@ void Checker::checkVarDecl(VarDeclNode* decl) {
 
 void Checker::checkIf(IfStmt* stmt) {
     if (stmt->condition) {
+        std::string condType = getExprType(stmt->condition.get());
+        if (isMatrixType(condType)) {
+            error(0, 0, "semantic error: matrix cannot be used as if condition");
+        }
         if (!isBool(stmt->condition.get())) {
             error(0, 0, "semantic error: if condition must be bool");
         }
@@ -161,6 +165,10 @@ void Checker::checkIf(IfStmt* stmt) {
 
 void Checker::checkWhile(WhileStmt* stmt) {
     if (stmt->condition) {
+        std::string condType = getExprType(stmt->condition.get());
+        if (isMatrixType(condType)) {
+            error(0, 0, "semantic error: matrix cannot be used as while condition");
+        }
         if (!isBool(stmt->condition.get())) {
             error(0, 0, "semantic error: while condition must be bool");
         }
@@ -182,6 +190,10 @@ void Checker::checkFor(ForStmt* stmt) {
         checkStmt(stmt->init.get());
     }
     if (stmt->cond) {
+        std::string condType = getExprType(stmt->cond.get());
+        if (isMatrixType(condType)) {
+            error(0, 0, "semantic error: matrix cannot be used as for condition");
+        }
         if (!isBool(stmt->cond.get())) {
             error(0, 0, "semantic error: for condition must be bool");
         }
