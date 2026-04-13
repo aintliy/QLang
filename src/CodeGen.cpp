@@ -1189,7 +1189,7 @@ llvm::Value* CodeGen::codegen(LiteralExpr* node) {
         llvm::PointerType* int8PtrTy = llvm::PointerType::get(builder->getInt8Ty(), 0);
         llvm::Value* strPtr = builder->CreateBitCast(gv, int8PtrTy);
         llvm::Value* len = builder->getInt32(str.size());
-        llvm::Value* result = builder->CreateAlloca(stringTy);
+        llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "string.tmp", stringTy);
         llvm::Value* dataPtr = builder->CreateStructGEP(stringTy, result, 0);
         builder->CreateStore(strPtr, dataPtr);
         llvm::Value* lenPtr = builder->CreateStructGEP(stringTy, result, 1);
