@@ -42,6 +42,7 @@ add_e2e_output_test(test_sum_array)
 add_e2e_output_test(test_struct_switch)
 add_e2e_output_test(test_string)
 add_e2e_output_test(test_global)
+add_e2e_output_test(test_literal_logical)
 
 # abort 类测试
 add_e2e_abort_test(test_array_bounds)
