@@ -266,7 +266,7 @@ std::unique_ptr<BlockStmt> Parser::parseBlock() {
         // block_item = var_decl ";" | statement
         if (check(TokenKind::KEYWORD_INT32) || check(TokenKind::KEYWORD_FLOAT64) ||
             check(TokenKind::KEYWORD_BOOL) || check(TokenKind::KEYWORD_STRING) ||
-            check(TokenKind::KEYWORD_STRUCT)) {
+            check(TokenKind::KEYWORD_STRUCT) || check(TokenKind::KEYWORD_MAT)) {
             block->items.push_back(parseVarDecl());
         } else {
             block->items.push_back(parseStatement());
