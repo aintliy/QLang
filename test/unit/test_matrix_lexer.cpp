@@ -84,11 +84,27 @@ void testOrdinaryNumbersUnaffected() {
     std::cout << "PASS: ordinary numbers work correctly" << std::endl;
 }
 
+void test5xDecomposition() {
+    std::cout << "Testing '5x' decomposition..." << std::endl;
+    Lexer lexer("5x");
+
+    Token t1 = lexer.nextToken();
+    assert(t1.kind == TokenKind::INT_LIT);
+    assert(t1.lexeme == "5");
+
+    Token t2 = lexer.nextToken();
+    assert(t2.kind == TokenKind::IDENT);
+    assert(t2.lexeme == "x");
+
+    std::cout << "PASS: 5x correctly decomposes to INT_LIT '5' + IDENT 'x'" << std::endl;
+}
+
 int main() {
     testMatKeyword();
     testMatrixDimensionLiterals();
     testMatWithType();
     testOrdinaryNumbersUnaffected();
+    test5xDecomposition();
 
     std::cout << "\nAll matrix lexer tests passed!" << std::endl;
     return 0;
