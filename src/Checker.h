@@ -125,4 +125,12 @@ private:
     bool isStructType(const std::string& typeName);
     bool isArrayOrStructType(const std::string& typeName);
     bool validateStructInit(const std::string& structName, InitListExpr* init, int line, int col);
+
+    // 矩阵类型检查辅助函数
+    bool isMatrixType(const std::string& typeName);
+    bool is2DArrayType(const std::string& typeName);
+    std::pair<int, int> parseMatrixDims(const std::string& matrixType);
+    std::string getMatrixElementType(const std::string& matrixType);
+    bool checkMatrixDims(const std::string& dims1, const std::string& dims2,
+                         int line, int col, const std::string& opName);
 };

@@ -651,3 +651,56 @@ bool Checker::checkFunctionReturnPaths(FuncDefNode* func) {
 
     return hasReturnStatement(func->body.get());
 }
+
+bool Checker::isMatrixType(const std::string& typeName) {
+    // 矩阵类型格式: "mat<int32> 2x3"
+    return typeName.substr(0, 4) == "mat<";
+}
+
+bool Checker::is2DArrayType(const std::string& typeName) {
+    // 二维数组格式: "int32[2][3]" - 包含两个 [ ]
+    size_t firstBracket = typeName.find('[');
+    if (firstBracket == std::string::npos) return false;
+    size_t secondBracket = typeName.find('[', firstBracket + 1);
+    return secondBracket != std::string::npos;
+}
+
+std::pair<int, int> Checker::parseMatrixDims(const std::string& matrixType) {
+    // 解析 "mat<int32> 2x3" 返回 {2, 3}
+    // 格式: "mat<element_type> rowsxcols"
+    size_t spacePos = matrixType.find(' ');
+    if (spacePos == std::string::npos) return {0, 0};
+    std::string dims = matrixType.substr(spacePos + 1);  // "2x3"
+
+    size_t xPos = dims.find('x');
+    if (xPos == std::string::npos) return {0, 0};
+
+    try {
+        int rows = std::stoi(dims.substr(0, xPos));
+        int cols = std::stoi(dims.substr(xPos + 1));
+        return {rows, cols};
+    } catch (...) {
+        return {0, 0};
+    }
+}
+
+std::string Checker::getMatrixElementType(const std::string& matrixType) {
+    // 解析 "mat<int32> 2x3" 返回 "int32"
+    if (!isMatrixType(matrixType)) return "";
+    size_t ltPos = matrixType.find('<');
+    size_t gtPos = matrixType.find('>');
+    if (ltPos == std::string::npos || gtPos == std::string::npos) return "";
+    return matrixType.substr(ltPos + 1, gtPos - ltPos - 1);
+}
+
+bool Checker::checkMatrixDims(const std::string& dims1, const std::string& dims2,
+                               int line, int col, const std::string& opName) {
+    auto [r1, c1] = parseMatrixDims(dims1);
+    auto [r2, c2] = parseMatrixDims(dims2);
+    if (r1 != r2 || c1 != c2) {
+        error(line, col, "semantic error: matrix " + opName +
+                  " requires same dimensions (" + dims1 + " vs " + dims2 + ")");
+        return false;
+    }
+    return true;
+}
