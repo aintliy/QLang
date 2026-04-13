@@ -635,14 +635,27 @@ std::unique_ptr<ASTNode> Parser::parseUnaryExpr() {
         node->operand = parseUnaryExpr();
         return node;
     }
-    if (match(TokenKind::LPAREN)) {
-        // Cast expression: (type) expr
-        std::string targetType = parseType();
-        consume(TokenKind::RPAREN, "expected ')'");
-        auto node = std::make_unique<CastExpr>();
-        node->targetType = targetType;
-        node->operand = parseUnaryExpr();
-        return node;
+    // Check for cast expression: (type) expr
+    // We must peek first to ensure ( after ( is a type keyword
+    // Otherwise it's a parenthesized expression handled by parsePostfixExpr
+    if (check(TokenKind::LPAREN)) {
+        Token next = lexer.peekToken();
+        bool isCast = (next.kind == TokenKind::KEYWORD_INT32 ||
+                       next.kind == TokenKind::KEYWORD_FLOAT64 ||
+                       next.kind == TokenKind::KEYWORD_BOOL ||
+                       next.kind == TokenKind::KEYWORD_STRING ||
+                       next.kind == TokenKind::KEYWORD_VOID ||
+                       next.kind == TokenKind::KEYWORD_MAT ||
+                       next.kind == TokenKind::KEYWORD_STRUCT);
+        if (isCast) {
+            advance(); // consume (
+            std::string targetType = parseType();
+            consume(TokenKind::RPAREN, "expected ')'");
+            auto node = std::make_unique<CastExpr>();
+            node->targetType = targetType;
+            node->operand = parseUnaryExpr();
+            return node;
+        }
     }
     return parsePostfixExpr();
 }

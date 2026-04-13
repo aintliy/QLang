@@ -14,6 +14,23 @@ char Lexer::peekNext() const {
     return source[pos + 1];
 }
 
+Token Lexer::peekToken() {
+    // Save state
+    size_t savedPos = pos;
+    int savedLine = line;
+    int savedCol = col;
+
+    // Get next token
+    Token token = nextToken();
+
+    // Restore state
+    pos = savedPos;
+    line = savedLine;
+    col = savedCol;
+
+    return token;
+}
+
 char Lexer::advance() {
     char c = source[pos++];
     if (c == '\n') {

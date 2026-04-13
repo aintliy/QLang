@@ -8,8 +8,7 @@ public:
     explicit Lexer(const std::string& source);
 
     Token nextToken();
-
-private:
+    Token peekToken();  // Look at next token without consuming
     const std::string& source;
     size_t pos = 0;
     int line = 1;
