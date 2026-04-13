@@ -1720,19 +1720,19 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 llvm::Value* newResult = isFloat ? builder->CreateFAdd(oldResult, prod, "add.elem") : builder->CreateAdd(oldResult, prod, "add.elem");
                 builder->CreateStore(newResult, resultElemPtr);
 
-                // k++ -> kIncBB
-                llvm::Value* kInc = builder->CreateAdd(k, builder->getInt32(1), "k.inc");
-                llvm::Value* kCmp = builder->CreateICmpSLT(kInc, builder->getInt32(lCols), "k.cmp");
-                builder->CreateCondBr(kCmp, kLoopBB, kIncBB);
+                // k loop exit: go to kIncBB to increment k and check condition
+                builder->CreateBr(kIncBB);
 
-                // k inc block: exits to kLoop (k continue) or jIncBB (k done)
+                // k inc block: increment k and loop or exit to jInc
                 builder->SetInsertPoint(kIncBB);
+                llvm::Value* kNext = builder->CreateAdd(k, builder->getInt32(1), "k.next");
+                llvm::Value* kCmp = builder->CreateICmpSLT(kNext, builder->getInt32(lCols), "k.cmp");
                 builder->CreateCondBr(kCmp, kLoopBB, jIncBB);
 
                 // Fix k loop PHIs with backedge from kIncBB
-                k->addIncoming(kInc, kIncBB);
+                k->addIncoming(kNext, kIncBB);
                 jCur->addIncoming(j, kIncBB);
-                iCurK->addIncoming(iCurK, kIncBB);
+                iCurK->addIncoming(i, kIncBB);
 
                 // j inc block: check j < rCols -> jLoop else -> iIncBB
                 builder->SetInsertPoint(jIncBB);
@@ -1752,13 +1752,6 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
 
                 // Fix i loop PHI backedge (from iIncBB)
                 i->addIncoming(iNext, iIncBB);
-
-                // Fix j loop PHIs with backedge from jIncBB
-                j->addIncoming(jNext, jIncBB);
-                iCur->addIncoming(i, jIncBB);
-
-                // Fix i loop PHI backedge (from jIncBB)
-                i->addIncoming(iNext, jIncBB);
 
                 builder->SetInsertPoint(endBB);
                 return result;
