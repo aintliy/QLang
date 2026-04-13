@@ -811,6 +811,9 @@ llvm::Value* CodeGen::codegen(VarDeclNode* node) {
     return alloca;
 }
 llvm::Value* CodeGen::codegen(BlockStmt* node) {
+    // 保存当前作用域的符号表状态，以便退出时恢复
+    std::map<std::string, llvm::AllocaInst*> oldNamedValues = namedValues;
+
     // 遍历块中的每个语句并生成代码
     for (auto& item : node->items) {
         codegen(item.get());
@@ -820,6 +823,10 @@ llvm::Value* CodeGen::codegen(BlockStmt* node) {
             break;
         }
     }
+
+    // 退出块时恢复外部作用域的符号表
+    namedValues = std::move(oldNamedValues);
+
     return nullptr;
 }
 llvm::Value* CodeGen::codegen(IfStmt* node) {
