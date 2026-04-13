@@ -542,16 +542,76 @@ void Checker::checkBinary(BinaryExpr* expr) {
     if (!isSupportedBinaryOp(expr->op)) {
         error(expr->line, expr->col, "semantic error: unsupported binary operator '" + expr->op + "'");
     }
+
     // 检查字面量零除数
     checkLiteralDivZero(expr);
+
+    std::string leftType = getExprType(expr->left.get());
+    std::string rightType = getExprType(expr->right.get());
+
+    // 检查矩阵比较（==/!=）
+    if (expr->op == "==" || expr->op == "!=") {
+        if (isMatrixType(leftType) || isMatrixType(rightType)) {
+            error(expr->line, expr->col, "semantic error: matrix cannot be compared");
+        }
+        if (isArrayOrStructType(leftType) || isArrayOrStructType(rightType)) {
+            error(expr->line, expr->col, "semantic error: array or struct cannot be compared");
+        }
+        checkExpr(expr->left.get());
+        checkExpr(expr->right.get());
+        return;
+    }
+
+    // 检查矩阵加减法维度匹配
+    if (expr->op == "+" || expr->op == "-") {
+        if (isMatrixType(leftType) && isMatrixType(rightType)) {
+            // 矩阵加法/减法：检查维度相同
+            checkMatrixDims(leftType, rightType, expr->line, expr->col,
+                           expr->op == "+" ? "addition" : "subtraction");
+            // 检查元素类型相同（禁止混合类型）
+            if (getMatrixElementType(leftType) != getMatrixElementType(rightType)) {
+                error(expr->line, expr->col, "semantic error: cannot perform matrix " + expr->op + " between int32 matrix and float64 matrix");
+            }
+            checkExpr(expr->left.get());
+            checkExpr(expr->right.get());
+            return;
+        }
+        // 数乘：int32/float64 * matrix 或 matrix * int32/float64
+        if ((isMatrixType(leftType) && !isMatrixType(rightType) && !isArrayOrStructType(rightType)) ||
+            (!isMatrixType(leftType) && !isArrayOrStructType(leftType) && isMatrixType(rightType))) {
+            // 数乘类型已在 getExprType 中处理
+            checkExpr(expr->left.get());
+            checkExpr(expr->right.get());
+            return;
+        }
+    }
+
+    // 检查矩阵乘法维度匹配
+    if (expr->op == "*") {
+        if (isMatrixType(leftType) && isMatrixType(rightType)) {
+            // 矩阵乘法：左矩阵列数 == 右矩阵行数
+            auto [lRows, lCols] = parseMatrixDims(leftType);
+            auto [rRows, rCols] = parseMatrixDims(rightType);
+            if (lCols != rRows) {
+                error(expr->line, expr->col, "semantic error: matrix multiplication requires left columns (" + std::to_string(lCols) + ") == right rows (" + std::to_string(rRows) + ")");
+            }
+            // 检查元素类型相同
+            if (getMatrixElementType(leftType) != getMatrixElementType(rightType)) {
+                error(expr->line, expr->col, "semantic error: cannot perform matrix " + expr->op + " between int32 matrix and float64 matrix");
+            }
+            checkExpr(expr->left.get());
+            checkExpr(expr->right.get());
+            return;
+        }
+    }
+
     // 检查数组/结构体比较
     if (expr->op == "==" || expr->op == "!=") {
-        std::string leftType = getExprType(expr->left.get());
-        std::string rightType = getExprType(expr->right.get());
         if (isArrayOrStructType(leftType) || isArrayOrStructType(rightType)) {
             error(expr->line, expr->col, "semantic error: array or struct cannot be compared");
         }
     }
+
     checkExpr(expr->left.get());
     checkExpr(expr->right.get());
 }
