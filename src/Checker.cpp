@@ -603,14 +603,7 @@ void Checker::checkBinary(BinaryExpr* expr) {
             checkExpr(expr->right.get());
             return;
         }
-    }
-
-    // 检查数组/结构体比较
-    if (expr->op == "==" || expr->op == "!=") {
-        if (isArrayOrStructType(leftType) || isArrayOrStructType(rightType)) {
-            error(expr->line, expr->col, "semantic error: array or struct cannot be compared");
         }
-    }
 
     checkExpr(expr->left.get());
     checkExpr(expr->right.get());
