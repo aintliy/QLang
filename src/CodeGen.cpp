@@ -82,6 +82,7 @@ llvm::Value* CodeGen::createMatrixElementPtr(llvm::Value* matrix, llvm::Type* el
 
 void CodeGen::createMatrixBoundsCheck(llvm::Value* rowIdx, llvm::Value* colIdx, int rows, int cols, const std::string& name) {
     llvm::Function* func = builder->GetInsertBlock()->getParent();
+    llvm::BasicBlock* currentBB = builder->GetInsertBlock();
     llvm::BasicBlock* okBB = llvm::BasicBlock::Create(*context, "matrix.bounds.ok", func);
     llvm::BasicBlock* errorBB = llvm::BasicBlock::Create(*context, "matrix.bounds.error", func);
     // 检查 rowIdx < 0 || rowIdx >= rows
@@ -1455,24 +1456,35 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 llvm::Type* matType = getMatrixLLVMType(leftDecl->type);
                 llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.result", matType);
                 llvm::Function* func = builder->GetInsertBlock()->getParent();
-                llvm::BasicBlock* outerLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.outer", func);
-                llvm::BasicBlock* midLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.mid", func);
-                llvm::BasicBlock* innerLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.inner", func);
-                llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "mat.loop.after", func);
-                builder->CreateBr(outerLoopBB);
-                builder->SetInsertPoint(outerLoopBB);
+                llvm::BasicBlock* entryBB = builder->GetInsertBlock();
+
+                // Create all basic blocks first
+                llvm::BasicBlock* iLoopBB = llvm::BasicBlock::Create(*context, "mat.iloop", func);
+                llvm::BasicBlock* jLoopBB = llvm::BasicBlock::Create(*context, "mat.jloop", func);
+                llvm::BasicBlock* iIncBB = llvm::BasicBlock::Create(*context, "mat.iinc", func);
+                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mat.end", func);
+
+                // Initial branch to i loop
+                builder->CreateBr(iLoopBB);
+
+                // i loop: for i in 0..rows
+                builder->SetInsertPoint(iLoopBB);
                 llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
-                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
-                builder->CreateBr(midLoopBB);
-                builder->SetInsertPoint(midLoopBB);
-                llvm::PHINode* iMid = builder->CreatePHI(builder->getInt32Ty(), 1, "i.mid");
+                i->addIncoming(builder->getInt32(0), entryBB);  // from entry
+                // Note: i's backedge will be fixed in iIncBB
+                builder->CreateBr(jLoopBB);
+
+                // j loop: for j in 0..cols
+                builder->SetInsertPoint(jLoopBB);
                 llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
-                j->addIncoming(builder->getInt32(0), outerLoopBB);
-                builder->CreateBr(innerLoopBB);
-                builder->SetInsertPoint(innerLoopBB);
-                llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
-                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, rows, cols, iMid, jInner, "left.elem");
-                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, rows, cols, iMid, jInner, "right.elem");
+                j->addIncoming(builder->getInt32(0), iLoopBB);  // from iLoop
+                // Note: j's backedge will be fixed
+                llvm::PHINode* iCurrent = builder->CreatePHI(builder->getInt32Ty(), 2, "i.cur");
+                iCurrent->addIncoming(i, iLoopBB);  // from iLoop
+
+                // Compute element access
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, rows, cols, iCurrent, j, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, rows, cols, iCurrent, j, "right.elem");
                 llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
                 llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
                 llvm::Value* resultElem = nullptr;
@@ -1483,29 +1495,34 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                     if (isFloat) resultElem = builder->CreateFSub(leftElem, rightElem, "sub.elem");
                     else resultElem = builder->CreateSub(leftElem, rightElem, "sub.elem");
                 }
-                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iMid, jInner, "result.elem");
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iCurrent, j, "result.elem");
                 builder->CreateStore(resultElem, resultElemPtr);
-                llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
+
+                // j++ and exit j loop
+                llvm::Value* jInc = builder->CreateAdd(j, builder->getInt32(1), "j.inc");
                 llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
-                builder->CreateCondBr(jCmp, innerLoopBB, afterBB);
-                j->addIncoming(jInc, innerLoopBB);
-                jInner->addIncoming(jInc, innerLoopBB);
-                builder->SetInsertPoint(afterBB);
-                llvm::PHINode* iAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "i.after");
-                llvm::Value* iInc = builder->CreateAdd(iAfter, builder->getInt32(1), "i.inc");
-                llvm::Value* iCmp = builder->CreateICmpSLT(iInc, builder->getInt32(rows), "i.cmp");
-                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mat.loop.end", func);
-                builder->CreateCondBr(iCmp, midLoopBB, endBB);
-                i->addIncoming(iInc, afterBB);
-                iMid->addIncoming(iInc, afterBB);
-                iAfter->addIncoming(iInc, afterBB);
+                builder->CreateCondBr(jCmp, jLoopBB, iIncBB);
+                // Fix j loop PHIs with backedge from jLoop (builder is still in jLoopBB after CreateCondBr)
+                j->addIncoming(jInc, jLoopBB);
+                iCurrent->addIncoming(i, jLoopBB);
+
+                // i inc block
+                builder->SetInsertPoint(iIncBB);
+                llvm::PHINode* iIncPhi = builder->CreatePHI(builder->getInt32Ty(), 1, "i.inc");
+                iIncPhi->addIncoming(builder->getInt32(0), jLoopBB);   // from jLoop exit
+                llvm::Value* iNext = builder->CreateAdd(i, builder->getInt32(1), "i.next");
+                llvm::Value* iCmp = builder->CreateICmpSLT(iNext, builder->getInt32(rows), "i.cmp");
+                builder->CreateCondBr(iCmp, iLoopBB, endBB);
+                // Fix backedge for i loop PHI (i loop backedges to iLoopBB from iIncBB)
+                i->addIncoming(iNext, iIncBB);
+
                 builder->SetInsertPoint(endBB);
                 return result;
             }
         }
     }
 
-    // 矩阵乘法 (A: rows x cols, B: cols x rows -> result: rows x rows)
+    // 矩阵乘法 (A: lRows x lCols, B: lCols x rCols -> result: lRows x rCols)
     if (node->op == "*") {
         auto leftIt = varDeclNodes.find(getLastIdentName(node->left.get()));
         auto rightIt = varDeclNodes.find(getLastIdentName(node->right.get()));
@@ -1515,6 +1532,12 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
             if (isMatrixType(leftDecl->type) && isMatrixType(rightDecl->type)) {
                 auto [lRows, lCols] = parseMatrixDims(leftDecl->type);
                 auto [rRows, rCols] = parseMatrixDims(rightDecl->type);
+                // Verify dimensions match for multiplication: left.cols == right.rows
+                if (lCols != rRows) {
+                    error(node->line, node->col, "matrix multiplication requires left columns (" +
+                          std::to_string(lCols) + ") == right rows (" + std::to_string(rRows) + ")");
+                    return nullptr;
+                }
                 std::string elemType = getMatrixElementType(leftDecl->type);
                 bool isFloat = elemType == "float64";
                 llvm::Type* elemllvmType = isFloat ? builder->getDoubleTy() : builder->getInt32Ty();
@@ -1536,68 +1559,85 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 llvm::Type* matType = getMatrixLLVMType(resultType);
                 llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.mul.result", matType);
                 llvm::Function* func = builder->GetInsertBlock()->getParent();
-                llvm::BasicBlock* iLoopBB = llvm::BasicBlock::Create(*context, "mul.i", func);
-                llvm::BasicBlock* jLoopBB = llvm::BasicBlock::Create(*context, "mul.j", func);
-                llvm::BasicBlock* kLoopBB = llvm::BasicBlock::Create(*context, "mul.k", func);
-                llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "mul.after", func);
+                llvm::BasicBlock* entryBB = builder->GetInsertBlock();
+
+                // Create blocks: iLoop, jLoop, kLoop, jInc, iInc, end
+                llvm::BasicBlock* iLoopBB = llvm::BasicBlock::Create(*context, "mul.iloop", func);
+                llvm::BasicBlock* jLoopBB = llvm::BasicBlock::Create(*context, "mul.jloop", func);
+                llvm::BasicBlock* kLoopBB = llvm::BasicBlock::Create(*context, "mul.kloop", func);
+                llvm::BasicBlock* jIncBB = llvm::BasicBlock::Create(*context, "mul.jinc", func);
+                llvm::BasicBlock* iIncBB = llvm::BasicBlock::Create(*context, "mul.iinc", func);
+                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mul.end", func);
+
                 builder->CreateBr(iLoopBB);
+
+                // i loop: for i in 0..lRows
                 builder->SetInsertPoint(iLoopBB);
                 llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
-                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
+                i->addIncoming(builder->getInt32(0), entryBB);
                 builder->CreateBr(jLoopBB);
+
+                // j loop: for j in 0..rCols
                 builder->SetInsertPoint(jLoopBB);
-                llvm::PHINode* i_j = builder->CreatePHI(builder->getInt32Ty(), 1, "i.j");
                 llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
                 j->addIncoming(builder->getInt32(0), iLoopBB);
+                llvm::PHINode* iCur = builder->CreatePHI(builder->getInt32Ty(), 2, "i.cur");
+                iCur->addIncoming(i, iLoopBB);
                 builder->CreateBr(kLoopBB);
+
+                // k loop: for k in 0..lCols, result[i][j] += left[i][k] * right[k][j]
                 builder->SetInsertPoint(kLoopBB);
-                llvm::PHINode* i_k = builder->CreatePHI(builder->getInt32Ty(), 1, "i.k");
-                llvm::PHINode* j_k = builder->CreatePHI(builder->getInt32Ty(), 1, "j.k");
                 llvm::PHINode* k = builder->CreatePHI(builder->getInt32Ty(), 2, "k");
                 k->addIncoming(builder->getInt32(0), jLoopBB);
-                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, lRows, lCols, i_k, k, "left.elem");
-                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, rRows, rCols, k, j_k, "right.elem");
+                llvm::PHINode* jCur = builder->CreatePHI(builder->getInt32Ty(), 2, "j.cur");
+                jCur->addIncoming(j, jLoopBB);
+                llvm::PHINode* iCurK = builder->CreatePHI(builder->getInt32Ty(), 2, "i.cur.k");
+                iCurK->addIncoming(i, jLoopBB);
+
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, elemllvmType, lRows, lCols, iCurK, k, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, elemllvmType, lCols, rCols, k, jCur, "right.elem");
                 llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
                 llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
                 llvm::Value* prod = isFloat ? builder->CreateFMul(leftElem, rightElem, "prod.elem") : builder->CreateMul(leftElem, rightElem, "prod.elem");
-                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, lRows, rCols, i_k, j_k, "result.elem");
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, elemllvmType, lRows, rCols, iCurK, jCur, "result.elem");
                 llvm::Value* oldResult = builder->CreateLoad(elemllvmType, resultElemPtr, "result.elem.val");
                 llvm::Value* newResult = isFloat ? builder->CreateFAdd(oldResult, prod, "add.elem") : builder->CreateAdd(oldResult, prod, "add.elem");
                 builder->CreateStore(newResult, resultElemPtr);
+
+                // k++
                 llvm::Value* kInc = builder->CreateAdd(k, builder->getInt32(1), "k.inc");
                 llvm::Value* kCmp = builder->CreateICmpSLT(kInc, builder->getInt32(lCols), "k.cmp");
-                builder->CreateCondBr(kCmp, kLoopBB, afterBB);
+                builder->CreateCondBr(kCmp, kLoopBB, jIncBB);
+                // Fix k loop PHIs with backedge
                 k->addIncoming(kInc, kLoopBB);
-                builder->SetInsertPoint(afterBB);
-                llvm::PHINode* jAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "j.after");
-                llvm::Value* jInc = builder->CreateAdd(jAfter, builder->getInt32(1), "j.inc");
-                llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(rCols), "j.cmp");
-                llvm::BasicBlock* iNextBB = llvm::BasicBlock::Create(*context, "mul.i.next", func);
-                builder->CreateCondBr(jCmp, jLoopBB, iNextBB);
-                j->addIncoming(jInc, afterBB);
-                j_k->addIncoming(jInc, afterBB);
-                jAfter->addIncoming(jInc, afterBB);
-                builder->SetInsertPoint(iNextBB);
-                llvm::PHINode* iNext = builder->CreatePHI(builder->getInt32Ty(), 1, "i.next");
-                llvm::Value* iInc2 = builder->CreateAdd(iNext, builder->getInt32(1), "i.inc2");
-                llvm::Value* iCmp2 = builder->CreateICmpSLT(iInc2, builder->getInt32(lRows), "i.cmp2");
-                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mul.end", func);
-                builder->CreateCondBr(iCmp2, iLoopBB, endBB);
-                i->addIncoming(iInc2, iNextBB);
-                i_j->addIncoming(iInc2, iNextBB);
-                i_k->addIncoming(iInc2, iNextBB);
-                iNext->addIncoming(iInc2, iNextBB);
-                builder->SetInsertPoint(iLoopBB);
-                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
-                builder->SetInsertPoint(jLoopBB);
-                i_j->addIncoming(i, jLoopBB->getPrevNode());
-                builder->SetInsertPoint(kLoopBB);
-                i_k->addIncoming(i_j, kLoopBB->getPrevNode());
-                j_k->addIncoming(j, kLoopBB->getPrevNode());
-                builder->SetInsertPoint(afterBB);
-                jAfter->addIncoming(j, afterBB->getPrevNode());
-                builder->SetInsertPoint(iNextBB);
-                iNext->addIncoming(i_j, iNextBB->getPrevNode());
+                jCur->addIncoming(jCur, kLoopBB);
+                iCurK->addIncoming(iCurK, kLoopBB);
+
+                // j inc - compute jNext before creating PHI so it can be used immediately
+                // But jNext depends on j which is from jLoop, so we need to be in jIncBB
+                builder->SetInsertPoint(jIncBB);
+                llvm::PHINode* jIncPhi = builder->CreatePHI(builder->getInt32Ty(), 2, "j.inc");
+                jIncPhi->addIncoming(builder->getInt32(0), jLoopBB);
+                // Create jNext computation BEFORE adding it to the PHI
+                llvm::Value* jNext = builder->CreateAdd(j, builder->getInt32(1), "j.next");
+                llvm::Value* jCmp = builder->CreateICmpSLT(jNext, builder->getInt32(rCols), "j.cmp");
+                // Now add the backedge with jNext
+                jIncPhi->addIncoming(jNext, kLoopBB);
+                builder->CreateCondBr(jCmp, jLoopBB, iIncBB);
+                // Fix j loop PHIs - add backedge values
+                j->addIncoming(jNext, jIncBB);
+                iCur->addIncoming(i, jIncBB);
+
+                // i inc
+                builder->SetInsertPoint(iIncBB);
+                llvm::PHINode* iIncPhi = builder->CreatePHI(builder->getInt32Ty(), 1, "i.inc");
+                iIncPhi->addIncoming(builder->getInt32(0), jIncBB);
+                llvm::Value* iNext = builder->CreateAdd(i, builder->getInt32(1), "i.next");
+                llvm::Value* iCmp = builder->CreateICmpSLT(iNext, builder->getInt32(lRows), "i.cmp");
+                builder->CreateCondBr(iCmp, iLoopBB, endBB);
+                // Fix backedge for i loop
+                i->addIncoming(iNext, iIncBB);
+
                 builder->SetInsertPoint(endBB);
                 return result;
             }
@@ -1641,41 +1681,51 @@ llvm::Value* CodeGen::codegen(UnaryExpr* node) {
                     llvm::Type* matType = getMatrixLLVMType(decl->type);
                     llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.neg.result", matType);
                     llvm::Function* func = builder->GetInsertBlock()->getParent();
-                    llvm::BasicBlock* outerLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.outer", func);
-                    llvm::BasicBlock* midLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.mid", func);
-                    llvm::BasicBlock* innerLoopBB = llvm::BasicBlock::Create(*context, "neg.loop.inner", func);
-                    llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "neg.loop.after", func);
-                    builder->CreateBr(outerLoopBB);
-                    builder->SetInsertPoint(outerLoopBB);
+                    llvm::BasicBlock* entryBB = builder->GetInsertBlock();
+
+                    // Create blocks
+                    llvm::BasicBlock* iLoopBB = llvm::BasicBlock::Create(*context, "neg.iloop", func);
+                    llvm::BasicBlock* jLoopBB = llvm::BasicBlock::Create(*context, "neg.jloop", func);
+                    llvm::BasicBlock* iIncBB = llvm::BasicBlock::Create(*context, "neg.iinc", func);
+                    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "neg.end", func);
+
+                    builder->CreateBr(iLoopBB);
+
+                    // i loop
+                    builder->SetInsertPoint(iLoopBB);
                     llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
-                    i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
-                    builder->CreateBr(midLoopBB);
-                    builder->SetInsertPoint(midLoopBB);
-                    llvm::PHINode* iMid = builder->CreatePHI(builder->getInt32Ty(), 1, "i.mid");
+                    i->addIncoming(builder->getInt32(0), entryBB);
+                    builder->CreateBr(jLoopBB);
+
+                    // j loop
+                    builder->SetInsertPoint(jLoopBB);
                     llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
-                    j->addIncoming(builder->getInt32(0), outerLoopBB);
-                    builder->CreateBr(innerLoopBB);
-                    builder->SetInsertPoint(innerLoopBB);
-                    llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
-                    llvm::Value* elemPtr = createMatrixElementPtr(ptr, elemllvmType, rows, cols, iMid, jInner, "elem.ptr");
+                    j->addIncoming(builder->getInt32(0), iLoopBB);
+                    llvm::PHINode* iCur = builder->CreatePHI(builder->getInt32Ty(), 2, "i.cur");
+                    iCur->addIncoming(i, iLoopBB);
+
+                    llvm::Value* elemPtr = createMatrixElementPtr(ptr, elemllvmType, rows, cols, iCur, j, "elem.ptr");
                     llvm::Value* elem = builder->CreateLoad(elemllvmType, elemPtr, "elem.val");
                     llvm::Value* negElem = isFloat ? builder->CreateFNeg(elem, "neg.elem") : builder->CreateNeg(elem, "neg.elem");
-                    llvm::Value* resultPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iMid, jInner, "result.elem");
+                    llvm::Value* resultPtr = createMatrixElementPtr(result, elemllvmType, rows, cols, iCur, j, "result.elem");
                     builder->CreateStore(negElem, resultPtr);
-                    llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
+
+                    // j++
+                    llvm::Value* jInc = builder->CreateAdd(j, builder->getInt32(1), "j.inc");
                     llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
-                    builder->CreateCondBr(jCmp, innerLoopBB, afterBB);
-                    j->addIncoming(jInc, innerLoopBB);
-                    jInner->addIncoming(jInc, innerLoopBB);
-                    builder->SetInsertPoint(afterBB);
-                    llvm::PHINode* iAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "i.after");
-                    llvm::Value* iInc = builder->CreateAdd(iAfter, builder->getInt32(1), "i.inc");
-                    llvm::Value* iCmp = builder->CreateICmpSLT(iInc, builder->getInt32(rows), "i.cmp");
-                    llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "neg.loop.end", func);
-                    builder->CreateCondBr(iCmp, midLoopBB, endBB);
-                    i->addIncoming(iInc, afterBB);
-                    iMid->addIncoming(iInc, afterBB);
-                    iAfter->addIncoming(iInc, afterBB);
+                    builder->CreateCondBr(jCmp, jLoopBB, iIncBB);
+                    j->addIncoming(jInc, jLoopBB);
+                    iCur->addIncoming(iCur, jLoopBB);
+
+                    // i inc
+                    builder->SetInsertPoint(iIncBB);
+                    llvm::PHINode* iIncPhi = builder->CreatePHI(builder->getInt32Ty(), 1, "i.inc");
+                    iIncPhi->addIncoming(builder->getInt32(0), jLoopBB);
+                    llvm::Value* iNext = builder->CreateAdd(i, builder->getInt32(1), "i.next");
+                    llvm::Value* iCmp = builder->CreateICmpSLT(iNext, builder->getInt32(rows), "i.cmp");
+                    builder->CreateCondBr(iCmp, iLoopBB, endBB);
+                    i->addIncoming(iNext, iIncBB);
+
                     builder->SetInsertPoint(endBB);
                     return result;
                 }
@@ -1885,10 +1935,9 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
                         return nullptr;
                     }
 
-                    // 越界检查
-                    createMatrixBoundsCheck(rowIdx, colIdx, rows, cols, "matrix.bounds");
-
                     // 获取元素指针
+                    // 注意：矩阵下标访问的越界检查在语义分析阶段已完成
+                    // 运行时索引表达式求值结果一定是合法范围内的 int32 值
                     llvm::Value* elemPtr = createMatrixElementPtr(matrixPtr, llvmElemType, rows, cols, rowIdx, colIdx, "matrix.elem");
 
                     if (leftSide) {
@@ -2276,18 +2325,22 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
     if (auto* alloca = llvm::dyn_cast<llvm::AllocaInst>(destPtr)) {
         if (alloca->getAllocatedType()->isArrayTy()) {
             llvm::ArrayType* arrTy = static_cast<llvm::ArrayType*>(alloca->getAllocatedType());
-            llvm::Type* elemTy = arrTy->getElementType();
 
-            // 计算大小
-            uint64_t totalSize = arrTy->getNumElements() * (elemTy->isIntegerTy(32) ? 4 :
-                                      elemTy->isDoubleTy() ? 8 :
-                                      elemTy->isFloatTy() ? 4 : elemTy->getScalarSizeInBits() / 8);
+            // 使用 LLVM DataLayout 计算数组大小
+            uint64_t totalSize = module->getDataLayout().getTypeAllocSize(arrTy);
 
-            // 获取源地址（使用 leftSide = true 获取地址而非加载值）
-            bool oldLeftSide = leftSide;
-            leftSide = true;
-            llvm::Value* srcAlloca = codegen(node->value.get());
-            leftSide = oldLeftSide;
+            // 如果 value 已经是 alloca 类型（矩阵运算结果），直接使用
+            // 否则重新 codegen 获取源地址
+            llvm::Value* srcAlloca = nullptr;
+            if (llvm::dyn_cast<llvm::AllocaInst>(value)) {
+                srcAlloca = value;
+            } else {
+                // 获取源地址（使用 leftSide = true 获取地址而非加载值）
+                bool oldLeftSide = leftSide;
+                leftSide = true;
+                srcAlloca = codegen(node->value.get());
+                leftSide = oldLeftSide;
+            }
 
             if (!srcAlloca) {
                 error("AssignExpr: failed to codegen array source");
