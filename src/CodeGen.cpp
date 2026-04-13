@@ -631,10 +631,17 @@ llvm::Value* CodeGen::codegen(FuncDefNode* node) {
         }
         if (isMatrixType(node->params[i - (currentFunctionIsSret ? 1 : 0)].first)) {
             std::string argName = arg.getName().str();
-            llvm::Type* matType = getMatrixLLVMType(node->params[i - (currentFunctionIsSret ? 1 : 0)].first);
+            std::string paramTypeStr = node->params[i - (currentFunctionIsSret ? 1 : 0)].first;
+            llvm::Type* matType = getMatrixLLVMType(paramTypeStr);
             llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, llvm::PointerType::get(matType, 0));
             builder->CreateStore(&arg, alloca);
             namedValues[argName] = alloca;
+            // 注册合成 VarDeclNode 以便 IndexExpr 能获取矩阵类型信息
+            auto synNode = std::make_unique<VarDeclNode>();
+            synNode->name = argName;
+            synNode->type = paramTypeStr;
+            varDeclNodes[argName] = synNode.get();
+            syntheticVarDecls.push_back(std::move(synNode));
         } else {
             std::string argName = arg.getName().str();
             llvm::AllocaInst* alloca = createEntryBlockAlloca(func, argName, arg.getType());
@@ -2041,7 +2048,19 @@ llvm::Value* CodeGen::codegen(IndexExpr* node) {
                     llvm::Value* matrixPtr = nullptr;
                     auto it = namedValues.find(ident->name);
                     if (it != namedValues.end()) {
-                        matrixPtr = it->second;
+                        llvm::Value* ptr = it->second;
+                        // 对于函数参数，alloca 的 allocated type 是指针类型 (ptr)，
+                        // 需要加载得到实际矩阵指针
+                        // 对于局部变量，alloca 的 allocated type 是数组类型，直接使用
+                        if (auto* allocaInst = llvm::dyn_cast<llvm::AllocaInst>(ptr)) {
+                            if (allocaInst->getAllocatedType()->isPointerTy()) {
+                                matrixPtr = builder->CreateLoad(allocaInst->getAllocatedType(), ptr, ident->name + ".mat.ptr");
+                            } else {
+                                matrixPtr = ptr;
+                            }
+                        } else {
+                            matrixPtr = ptr;
+                        }
                     }
                     if (!matrixPtr) {
                         error("IndexExpr: undefined matrix variable: " + ident->name);
@@ -2456,6 +2475,13 @@ llvm::Value* CodeGen::codegen(AssignExpr* node) {
             if (!srcAlloca) {
                 error("AssignExpr: failed to codegen array source");
                 return nullptr;
+            }
+
+            // 如果 srcAlloca 不是指针（例如函数调用返回的矩阵值），存入临时 alloca
+            if (!srcAlloca->getType()->isPointerTy()) {
+                llvm::AllocaInst* tempAlloca = createEntryBlockAlloca(currentFunction, "mat.src.tmp", arrTy);
+                builder->CreateStore(srcAlloca, tempAlloca);
+                srcAlloca = tempAlloca;
             }
 
             // 获取元素指针

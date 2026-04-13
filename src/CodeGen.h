@@ -36,6 +36,9 @@ private:
     // 变量声明映射：变量名 -> VarDeclNode*
     std::map<std::string, VarDeclNode*> varDeclNodes;
 
+    // 为函数参数合成的 VarDeclNode（持有所有权）
+    std::vector<std::unique_ptr<VarDeclNode>> syntheticVarDecls;
+
     // 结构体定义映射：struct name -> StructDefNode*
     std::map<std::string, StructDefNode*> structDefNodes;
 
