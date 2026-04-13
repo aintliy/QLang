@@ -1,6 +1,17 @@
 #include "CodeGen.h"
 #include "Diagnostics.h"
 
+// 获取表达式中最右侧的标识符名称（用于查找变量声明）
+std::string getLastIdentName(ASTNode* expr) {
+    if (auto* ident = dynamic_cast<IdentExpr*>(expr)) {
+        return ident->name;
+    }
+    if (auto* index = dynamic_cast<IndexExpr*>(expr)) {
+        return getLastIdentName(index->base.get());
+    }
+    return "";
+}
+
 // 矩阵类型检查辅助函数
 bool CodeGen::isMatrixType(const std::string& typeName) {
     return typeName.substr(0, 4) == "mat<";
@@ -1339,6 +1350,184 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
         phi->addIncoming(builder->getTrue(), entryBB);
         phi->addIncoming(rightBool, rhsBB);
         return phi;
+    }
+    // 矩阵加法/减法：逐元素操作
+    if (left->getType()->isArrayTy() && right->getType()->isArrayTy()) {
+        auto leftIt = varDeclNodes.find(getLastIdentName(node->left.get()));
+        auto rightIt = varDeclNodes.find(getLastIdentName(node->right.get()));
+        if (leftIt != varDeclNodes.end() && rightIt != varDeclNodes.end()) {
+            VarDeclNode* leftDecl = leftIt->second;
+            VarDeclNode* rightDecl = rightIt->second;
+            if (isMatrixType(leftDecl->type) && isMatrixType(rightDecl->type) &&
+                leftDecl->type == rightDecl->type) {
+                auto [rows, cols] = parseMatrixDims(leftDecl->type);
+                std::string elemType = getMatrixElementType(leftDecl->type);
+                bool isFloat = elemType == "float64";
+                llvm::Type* elemllvmType = isFloat ? builder->getDoubleTy() : builder->getInt32Ty();
+                llvm::Value* leftPtr = nullptr;
+                llvm::Value* rightPtr = nullptr;
+                if (auto* ident = dynamic_cast<IdentExpr*>(node->left.get())) {
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) leftPtr = it->second;
+                }
+                if (auto* ident = dynamic_cast<IdentExpr*>(node->right.get())) {
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) rightPtr = it->second;
+                }
+                if (!leftPtr || !rightPtr) {
+                    error("BinaryExpr: matrix operands must be variables");
+                    return nullptr;
+                }
+                llvm::Type* matType = getMatrixLLVMType(leftDecl->type);
+                llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.result", matType);
+                llvm::Function* func = builder->GetInsertBlock()->getParent();
+                llvm::BasicBlock* outerLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.outer", func);
+                llvm::BasicBlock* midLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.mid", func);
+                llvm::BasicBlock* innerLoopBB = llvm::BasicBlock::Create(*context, "mat.loop.inner", func);
+                llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "mat.loop.after", func);
+                builder->CreateBr(outerLoopBB);
+                builder->SetInsertPoint(outerLoopBB);
+                llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
+                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
+                builder->CreateBr(midLoopBB);
+                builder->SetInsertPoint(midLoopBB);
+                llvm::PHINode* iMid = builder->CreatePHI(builder->getInt32Ty(), 1, "i.mid");
+                llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
+                j->addIncoming(builder->getInt32(0), outerLoopBB);
+                builder->CreateBr(innerLoopBB);
+                builder->SetInsertPoint(innerLoopBB);
+                llvm::PHINode* jInner = builder->CreatePHI(builder->getInt32Ty(), 1, "j.inner");
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, rows, cols, iMid, jInner, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, rows, cols, iMid, jInner, "right.elem");
+                llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
+                llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
+                llvm::Value* resultElem = nullptr;
+                if (node->op == "+") {
+                    if (isFloat) resultElem = builder->CreateFAdd(leftElem, rightElem, "add.elem");
+                    else resultElem = builder->CreateAdd(leftElem, rightElem, "add.elem");
+                } else if (node->op == "-") {
+                    if (isFloat) resultElem = builder->CreateFSub(leftElem, rightElem, "sub.elem");
+                    else resultElem = builder->CreateSub(leftElem, rightElem, "sub.elem");
+                }
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, rows, cols, iMid, jInner, "result.elem");
+                builder->CreateStore(resultElem, resultElemPtr);
+                llvm::Value* jInc = builder->CreateAdd(jInner, builder->getInt32(1), "j.inc");
+                llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(cols), "j.cmp");
+                builder->CreateCondBr(jCmp, innerLoopBB, afterBB);
+                j->addIncoming(jInc, innerLoopBB);
+                jInner->addIncoming(jInc, innerLoopBB);
+                builder->SetInsertPoint(afterBB);
+                llvm::PHINode* iAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "i.after");
+                llvm::Value* iInc = builder->CreateAdd(iAfter, builder->getInt32(1), "i.inc");
+                llvm::Value* iCmp = builder->CreateICmpSLT(iInc, builder->getInt32(rows), "i.cmp");
+                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mat.loop.end", func);
+                builder->CreateCondBr(iCmp, midLoopBB, endBB);
+                i->addIncoming(iInc, afterBB);
+                iMid->addIncoming(iInc, afterBB);
+                iAfter->addIncoming(iInc, afterBB);
+                builder->SetInsertPoint(endBB);
+                return result;
+            }
+        }
+    }
+
+    // 矩阵乘法 (A: rows x cols, B: cols x rows -> result: rows x rows)
+    if (node->op == "*") {
+        auto leftIt = varDeclNodes.find(getLastIdentName(node->left.get()));
+        auto rightIt = varDeclNodes.find(getLastIdentName(node->right.get()));
+        if (leftIt != varDeclNodes.end() && rightIt != varDeclNodes.end()) {
+            VarDeclNode* leftDecl = leftIt->second;
+            VarDeclNode* rightDecl = rightIt->second;
+            if (isMatrixType(leftDecl->type) && isMatrixType(rightDecl->type)) {
+                auto [lRows, lCols] = parseMatrixDims(leftDecl->type);
+                auto [rRows, rCols] = parseMatrixDims(rightDecl->type);
+                std::string elemType = getMatrixElementType(leftDecl->type);
+                bool isFloat = elemType == "float64";
+                llvm::Type* elemllvmType = isFloat ? builder->getDoubleTy() : builder->getInt32Ty();
+                llvm::Value* leftPtr = nullptr;
+                llvm::Value* rightPtr = nullptr;
+                if (auto* ident = dynamic_cast<IdentExpr*>(node->left.get())) {
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) leftPtr = it->second;
+                }
+                if (auto* ident = dynamic_cast<IdentExpr*>(node->right.get())) {
+                    auto it = namedValues.find(ident->name);
+                    if (it != namedValues.end()) rightPtr = it->second;
+                }
+                if (!leftPtr || !rightPtr) {
+                    error("BinaryExpr: matrix operands must be variables");
+                    return nullptr;
+                }
+                std::string resultType = "mat<" + elemType + "> " + std::to_string(lRows) + "x" + std::to_string(rCols);
+                llvm::Type* matType = getMatrixLLVMType(resultType);
+                llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.mul.result", matType);
+                llvm::Function* func = builder->GetInsertBlock()->getParent();
+                llvm::BasicBlock* iLoopBB = llvm::BasicBlock::Create(*context, "mul.i", func);
+                llvm::BasicBlock* jLoopBB = llvm::BasicBlock::Create(*context, "mul.j", func);
+                llvm::BasicBlock* kLoopBB = llvm::BasicBlock::Create(*context, "mul.k", func);
+                llvm::BasicBlock* afterBB = llvm::BasicBlock::Create(*context, "mul.after", func);
+                builder->CreateBr(iLoopBB);
+                builder->SetInsertPoint(iLoopBB);
+                llvm::PHINode* i = builder->CreatePHI(builder->getInt32Ty(), 2, "i");
+                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
+                builder->CreateBr(jLoopBB);
+                builder->SetInsertPoint(jLoopBB);
+                llvm::PHINode* i_j = builder->CreatePHI(builder->getInt32Ty(), 1, "i.j");
+                llvm::PHINode* j = builder->CreatePHI(builder->getInt32Ty(), 2, "j");
+                j->addIncoming(builder->getInt32(0), iLoopBB);
+                builder->CreateBr(kLoopBB);
+                builder->SetInsertPoint(kLoopBB);
+                llvm::PHINode* i_k = builder->CreatePHI(builder->getInt32Ty(), 1, "i.k");
+                llvm::PHINode* j_k = builder->CreatePHI(builder->getInt32Ty(), 1, "j.k");
+                llvm::PHINode* k = builder->CreatePHI(builder->getInt32Ty(), 2, "k");
+                k->addIncoming(builder->getInt32(0), jLoopBB);
+                llvm::Value* leftElemPtr = createMatrixElementPtr(leftPtr, lRows, lCols, i_k, k, "left.elem");
+                llvm::Value* rightElemPtr = createMatrixElementPtr(rightPtr, rRows, rCols, k, j_k, "right.elem");
+                llvm::Value* leftElem = builder->CreateLoad(elemllvmType, leftElemPtr, "left.elem.val");
+                llvm::Value* rightElem = builder->CreateLoad(elemllvmType, rightElemPtr, "right.elem.val");
+                llvm::Value* prod = isFloat ? builder->CreateFMul(leftElem, rightElem, "prod.elem") : builder->CreateMul(leftElem, rightElem, "prod.elem");
+                llvm::Value* resultElemPtr = createMatrixElementPtr(result, lRows, rCols, i_k, j_k, "result.elem");
+                llvm::Value* oldResult = builder->CreateLoad(elemllvmType, resultElemPtr, "result.elem.val");
+                llvm::Value* newResult = isFloat ? builder->CreateFAdd(oldResult, prod, "add.elem") : builder->CreateAdd(oldResult, prod, "add.elem");
+                builder->CreateStore(newResult, resultElemPtr);
+                llvm::Value* kInc = builder->CreateAdd(k, builder->getInt32(1), "k.inc");
+                llvm::Value* kCmp = builder->CreateICmpSLT(kInc, builder->getInt32(lCols), "k.cmp");
+                builder->CreateCondBr(kCmp, kLoopBB, afterBB);
+                k->addIncoming(kInc, kLoopBB);
+                builder->SetInsertPoint(afterBB);
+                llvm::PHINode* jAfter = builder->CreatePHI(builder->getInt32Ty(), 1, "j.after");
+                llvm::Value* jInc = builder->CreateAdd(jAfter, builder->getInt32(1), "j.inc");
+                llvm::Value* jCmp = builder->CreateICmpSLT(jInc, builder->getInt32(rCols), "j.cmp");
+                llvm::BasicBlock* iNextBB = llvm::BasicBlock::Create(*context, "mul.i.next", func);
+                builder->CreateCondBr(jCmp, jLoopBB, iNextBB);
+                j->addIncoming(jInc, afterBB);
+                j_k->addIncoming(jInc, afterBB);
+                jAfter->addIncoming(jInc, afterBB);
+                builder->SetInsertPoint(iNextBB);
+                llvm::PHINode* iNext = builder->CreatePHI(builder->getInt32Ty(), 1, "i.next");
+                llvm::Value* iInc2 = builder->CreateAdd(iNext, builder->getInt32(1), "i.inc2");
+                llvm::Value* iCmp2 = builder->CreateICmpSLT(iInc2, builder->getInt32(lRows), "i.cmp2");
+                llvm::BasicBlock* endBB = llvm::BasicBlock::Create(*context, "mul.end", func);
+                builder->CreateCondBr(iCmp2, iLoopBB, endBB);
+                i->addIncoming(iInc2, iNextBB);
+                i_j->addIncoming(iInc2, iNextBB);
+                i_k->addIncoming(iInc2, iNextBB);
+                iNext->addIncoming(iInc2, iNextBB);
+                builder->SetInsertPoint(iLoopBB);
+                i->addIncoming(builder->getInt32(0), builder->GetInsertBlock());
+                builder->SetInsertPoint(jLoopBB);
+                i_j->addIncoming(i, jLoopBB->getPrevNode());
+                builder->SetInsertPoint(kLoopBB);
+                i_k->addIncoming(i_j, kLoopBB->getPrevNode());
+                j_k->addIncoming(j, kLoopBB->getPrevNode());
+                builder->SetInsertPoint(afterBB);
+                jAfter->addIncoming(j, afterBB->getPrevNode());
+                builder->SetInsertPoint(iNextBB);
+                iNext->addIncoming(i_j, iNextBB->getPrevNode());
+                builder->SetInsertPoint(endBB);
+                return result;
+            }
+        }
     }
     error("BinaryExpr: unknown operator: " + node->op);
     return nullptr;
