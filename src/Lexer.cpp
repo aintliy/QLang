@@ -256,6 +256,7 @@ Token Lexer::scanIdentifierOrKeyword(char firstChar) {
     if (value == "true") return makeToken(TokenKind::KEYWORD_TRUE, value);
     if (value == "void") return makeToken(TokenKind::KEYWORD_VOID, value);
     if (value == "while") return makeToken(TokenKind::KEYWORD_WHILE, value);
+    if (value == "mat") return makeToken(TokenKind::KEYWORD_MAT, value);
 
     return Token(TokenKind::IDENT, value, startLine, startCol);
 }
