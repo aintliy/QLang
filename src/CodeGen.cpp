@@ -1684,6 +1684,21 @@ llvm::Value* CodeGen::codegen(BinaryExpr* node) {
                 std::string resultType = "mat<" + elemType + "> " + std::to_string(lRows) + "x" + std::to_string(rCols);
                 llvm::Type* matType = getMatrixLLVMType(resultType);
                 llvm::AllocaInst* result = createEntryBlockAlloca(currentFunction, "matrix.mul.result", matType);
+                // Zero-initialize the result matrix before accumulation
+                llvm::Value* zero = builder->getInt32(0);
+                for (uint32_t i = 0; i < lRows; ++i) {
+                    for (uint32_t j = 0; j < rCols; ++j) {
+                        llvm::Value* idxs[] = {zero, builder->getInt32(i), builder->getInt32(j)};
+                        llvm::Value* elemPtr = builder->CreateGEP(matType, result, idxs, "result.elem");
+                        llvm::Value* zeroVal;
+                        if (isFloat) {
+                            zeroVal = llvm::ConstantFP::get(*context, llvm::APFloat(0.0));
+                        } else {
+                            zeroVal = builder->getInt32(0);
+                        }
+                        builder->CreateStore(zeroVal, elemPtr);
+                    }
+                }
                 llvm::Function* func = builder->GetInsertBlock()->getParent();
                 llvm::BasicBlock* entryBB = builder->GetInsertBlock();
 
