@@ -85,4 +85,4 @@ qlang_token
 bash init.sh build
 ```
 
-构建产物位于 `build/` 目录，可执行文件为 `build/src/Driver/qlang_driver`。
+构建产物位于 `build/` 目录，可执行文件为 `build/src/qlang_driver`。
