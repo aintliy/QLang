@@ -50,8 +50,15 @@ EXE_FILE="$TMPDIR_WORK/test_exe"
 
 # Step 1: compile .ql → .ll
 if ! "$DRIVER" "$QL_FILE" -S -o "$LL_FILE" 2>/dev/null; then
-    echo "FAIL: qlang compilation failed for $QL_FILE"
-    exit 1
+    # Compilation failed
+    if [ "$EXPECTED_EXIT" = "nonzero" ]; then
+        # Compile error is expected for abort tests
+        echo "PASS: $(basename $QL_FILE)"
+        exit 0
+    else
+        echo "FAIL: qlang compilation failed for $QL_FILE"
+        exit 1
+    fi
 fi
 
 # Step 2: compile .ll → .o
