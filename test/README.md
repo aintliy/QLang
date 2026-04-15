@@ -62,6 +62,7 @@ cd build && ctest --output-on-failure
 | `test_struct_switch.ql` | 结构体字段访问、switch 语句 |
 | `test_string.ql` | 字符串字面量与输出 |
 | `test_global.ql` | 全局变量读写 |
+| `test_literal_logical.ql` | 逻辑运算（&&、\|\|、!）|
 
 ### 异常终止测试（由 CTest 自动运行）
 
@@ -79,8 +80,27 @@ cd build && ctest --output-on-failure
 bash init.sh run test/e2e/<文件名>.ql
 ```
 
+部分可用测试文件：
+
+| 文件 | 说明 |
+|------|------|
+| `test_comprehensive.ql` | 综合测试，覆盖所有主要功能 |
+| `test_matrix_add.ql` | 矩阵加法 |
+| `test_matrix_sub.ql` | 矩阵减法 |
+| `test_matrix_scalar.ql` | 矩阵标量乘法 |
+| `test_matrix_neg.ql` | 矩阵求负 |
+| `test_matrix_mul.ql` | 矩阵乘法 |
+| `test_matrix_index.ql` | 矩阵下标访问 |
+| `test_matrix_func.ql` | 矩阵作为函数参数和返回值 |
+| `test_matrix_print.ql` | 矩阵打印 |
+| `test_matrix_index_bounds.ql` | 矩阵下标越界检查 |
+| `test_float_arith.ql` | 浮点运算 |
+| `test_string_matrix_interaction.ql` | 字符串与矩阵运算交互 |
+| `test_shadow.ql` | 作用域与变量遮蔽 |
+
 ### 添加新的端到端测试
 
 1. 在 `test/e2e/` 下创建 `test_<name>.ql`
 2. 在 `test/e2e/expected/` 下创建 `test_<name>.expected`，写入预期的标准输出
-3. 在 `test/e2e/CMakeLists.txt` 中用 `add_e2e_output_test` 或 `add_e2e_abort_test` 注册测试
+3. 在 `test/e2e/CMakeLists.txt` 中用 `add_e2e_output_test`（正常退出）或 `add_e2e_abort_test`（异常终止）注册测试
+4. 运行 `bash init.sh test` 验证

@@ -6,7 +6,7 @@ QLang 运行时库（`libqlang_runtime.a`）是一个静态 C 库，为编译后
 
 | 文件 | 说明 |
 |------|------|
-| `qlang_runtime.c` | 运行时函数实现 |
+| `qlang_runtime.c` | 运行时函数实现（含矩阵打印） |
 | `CMakeLists.txt` | 构建 `libqlang_runtime.a` |
 
 ## 提供的函数
@@ -40,6 +40,13 @@ QLang 运行时库（`libqlang_runtime.a`）是一个静态 C 库，为编译后
 |---------|------|
 | `void print_bool(int32_t v)` | 输出 `true` 或 `false`，不换行 |
 | `void println_bool(int32_t v)` | 输出 `true` 或 `false` 并换行 |
+
+### 矩阵 I/O
+
+| 函数签名 | 说明 |
+|---------|------|
+| `void println_matrix_int(int32_t* m, int32_t rows, int32_t cols)` | 输出 `int32` 矩阵并换行 |
+| `void println_matrix_float(float64_t* m, int32_t rows, int32_t cols)` | 输出 `float64` 矩阵并换行 |
 
 ## 字符串类型
 
