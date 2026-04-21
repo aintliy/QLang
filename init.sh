@@ -4,7 +4,7 @@
 #   ./init.sh          - 编译所有源文件
 #   ./init.sh test     - 运行所有测试
 #   ./init.sh clean    - 清理构建产物
-#   ./init.sh run FILE - 编译并运行 FILE.ql
+#   ./init.sh run FILE [-O2] - 编译并运行 FILE.ql（可选 -O2 优化）
 
 set -e
 
@@ -56,6 +56,8 @@ build_cmake() {
 compile_qlang() {
     local input="$1"
     local output="${2:-a.out}"
+    shift 2
+    local extra_args=("$@")
 
     if [ ! -f "$input" ]; then
         log_error "File not found: $input"
@@ -65,7 +67,7 @@ compile_qlang() {
     log_info "Compiling $input..."
 
     # Step 1: Lexer + Parser + Sema + Codegen -> IR
-    "$BUILD_DIR/src/qlang_driver" "$input" -S -o "$BUILD_DIR/output.ll"
+    "$BUILD_DIR/src/qlang_driver" "$input" -S -o "$BUILD_DIR/output.ll" "${extra_args[@]}"
 
     # Step 2: Compile IR -> object (use --filetype=obj for relocatable object)
     llc --filetype=obj "$BUILD_DIR/output.ll" -o "$BUILD_DIR/output.o"
@@ -114,20 +116,25 @@ case "${1:-build}" in
         ;;
     run)
         if [ -z "$2" ]; then
-            log_error "Usage: $0 run FILE"
+            log_error "Usage: $0 run FILE [-O2]"
             exit 1
         fi
         check_llvm
         build_cmake
+        opt_args=()
+        if [ "${3:-}" = "-O2" ]; then
+            opt_args+=("-O2")
+            log_info "Optimization: -O2 enabled"
+        fi
         # 支持 test/e2e/FILE.ql 或直接 FILE.ql（优先 test/e2e/）
         if [ -f "test/e2e/$2.ql" ]; then
-            compile_qlang "test/e2e/$2.ql" "$2"
+            compile_qlang "test/e2e/$2.ql" "$2" "${opt_args[@]}"
         else
-            compile_qlang "$2.ql" "$2"
+            compile_qlang "$2.ql" "$2" "${opt_args[@]}"
         fi
         ;;
     *)
-        echo "Usage: $0 {build|test|clean|run FILE}"
+        echo "Usage: $0 {build|test|clean|run FILE [-O2]}"
         exit 1
         ;;
 esac
