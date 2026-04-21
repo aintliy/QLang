@@ -5,6 +5,19 @@ find_package(LLVM REQUIRED CONFIG)
 message(STATUS "Found LLVM: ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVM: ${LLVM_BINARY_DIR}")
 
+# Resolve LLVM PassManager + analysis + transform libraries
+llvm_map_components_to_libnames(LLVM_PASS_LIBS
+    Passes
+    IPO
+    ScalarOpts
+    InstCombine
+    TransformUtils
+    Analysis
+    Target
+    Core
+    Support
+)
+
 add_compile_options(-std=c++17)
 
 # Token
@@ -41,4 +54,4 @@ target_link_libraries(qlang_codegen PUBLIC qlang_ast qlang_diagnostics LLVMCore)
 
 # Driver (for testing)
 add_executable(qlang_driver Driver/main.cpp)
-target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_parser qlang_checker qlang_codegen LLVMCore)
+target_link_libraries(qlang_driver PRIVATE qlang_lexer qlang_token qlang_diagnostics qlang_parser qlang_checker qlang_codegen ${LLVM_PASS_LIBS})

@@ -2,6 +2,8 @@
 #include <fstream>
 #include <string>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/PassManager.h>
+#include <llvm/Passes/PassBuilder.h>
 #include "Lexer.h"
 #include "Parser.h"
 #include "Checker.h"
@@ -9,7 +11,7 @@
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <input.ql> [-S -o output.ll]" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <input.ql> [-O2] [-S -o output.ll]" << std::endl;
         return 1;
     }
 
@@ -39,11 +41,32 @@ int main(int argc, char** argv) {
     std::unique_ptr<llvm::Module> module = codegen.codegen(program.get());
 
     // 输出 IR
+    bool enableO2 = false;
     std::string outputPath = "output.ll";
     for (int i = 1; i < argc; i++) {
-        if (std::string(argv[i]) == "-o" && i + 1 < argc) {
+        if (std::string(argv[i]) == "-O2") {
+            enableO2 = true;
+        } else if (std::string(argv[i]) == "-o" && i + 1 < argc) {
             outputPath = argv[i + 1];
         }
+    }
+
+    if (enableO2) {
+        llvm::PassBuilder pb;
+        llvm::LoopAnalysisManager lam;
+        llvm::FunctionAnalysisManager fam;
+        llvm::CGSCCAnalysisManager cgam;
+        llvm::ModuleAnalysisManager mam;
+
+        pb.registerModuleAnalyses(mam);
+        pb.registerCGSCCAnalyses(cgam);
+        pb.registerFunctionAnalyses(fam);
+        pb.registerLoopAnalyses(lam);
+        pb.crossRegisterProxies(lam, fam, cgam, mam);
+
+        llvm::ModulePassManager mpm =
+            pb.buildPerModuleDefaultPipeline(llvm::OptimizationLevel::O2);
+        mpm.run(*module, mam);
     }
 
     std::error_code EC;
