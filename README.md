@@ -10,6 +10,7 @@ QLang 是一门静态类型的编译型语言，编译器以 C++ 实现，后端
 - 全局变量
 - 矩阵运算：加法、减法、乘法（矩阵×矩阵、矩阵×标量）、求负、下标访问
 - 运行时安全检查：数组越界、除零、递归深度限制、矩阵下标越界检查
+- LLVM IR 优化：支持 `-O2` 级别优化，集成 LLVM New PassManager
 - C 运行时库提供 I/O 原语（`print_int`、`println_string` 等，含矩阵打印）
 
 ## 项目结构
@@ -38,6 +39,14 @@ bash init.sh build
 bash init.sh run path/to/program.ql
 ```
 
+### 启用 O2 优化编译
+
+```bash
+bash init.sh run path/to/program.ql -O2
+```
+
+开启 `-O2` 后，编译器会在生成 LLVM IR 后自动运行 LLVM 的标准 O2 优化管线（常量传播、死代码消除、循环展开等）。
+
 ### 运行测试套件
 
 ```bash
@@ -58,8 +67,9 @@ bash init.sh clean
            └─► Parser（语法分析）→ AST
                    └─► Checker（语义分析）→ 类型检查后的 AST
                            └─► CodeGen（代码生成）→ LLVM IR（.ll）
-                                   └─► llc → 目标文件（.o）
-                                           └─► clang + libqlang_runtime.a → 可执行文件
+                                   └─► [可选] PassManager（-O2 优化）→ 优化后的 LLVM IR
+                                           └─► llc → 目标文件（.o）
+                                                   └─► clang + libqlang_runtime.a → 可执行文件
 ```
 
 ## 依赖
@@ -70,6 +80,22 @@ bash init.sh clean
 | LLVM / Clang | ≥ 14 |
 | GCC / G++ | ≥ 11（支持 C++17） |
 | Google Test | 用于单元测试 |
+
+## LLVM IR 优化效果示例
+
+以矩阵乘法（`test_matrix_mul.ql`，2×3 × 3×2）为例：
+
+| 指标 | 无优化 | `-O2` 优化 | 效果 |
+|------|--------|-----------|------|
+| IR 行数 | 259 | 16 | 缩减 **93.8%** |
+| 核心变化 | 含三重循环、alloca、边界检查、memcpy | 直接 `tail call @println_int(i32 22)` 等 4 个常量 | 编译期完成全部计算 |
+
+以斐波那契递归（`test_fibonacci.ql`）为例：
+
+| 指标 | 无优化 | `-O2` 优化 | 效果 |
+|------|--------|-----------|------|
+| IR 行数 | 96 | 60 | 缩减 **37.5%** |
+| 核心变化 | 冗余 alloca + 多次 load/store | 直接使用 SSA 值，公共返回块合并 | 消除冗余内存操作 |
 
 ## 示例
 
