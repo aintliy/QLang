@@ -4,7 +4,7 @@
 #   ./init.sh          - 编译所有源文件
 #   ./init.sh test     - 运行所有测试
 #   ./init.sh clean    - 清理构建产物
-#   ./init.sh run FILE [-O2] - 编译并运行 FILE.ql（可选 -O2 优化）
+#   ./init.sh run FILE [-O2] - 运行 FILE.ql（可选 -O2 优化）
 
 set -e
 
@@ -120,7 +120,6 @@ case "${1:-build}" in
             exit 1
         fi
         check_llvm
-        build_cmake
         opt_args=()
         if [ "${3:-}" = "-O2" ]; then
             opt_args+=("-O2")
